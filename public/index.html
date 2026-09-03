@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Explore how Microsoft Foundry Model Router selects models across prompt complexity levels.">
+    <title>RouteLab | Model Router Playground</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="history-panel" id="historyPanel">
+        <div class="brand-row">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div><strong>RouteLab</strong><small>Foundry model router</small></div>
+        </div>
+        <button class="new-chat" id="newChatButton" type="button"><span aria-hidden="true">＋</span> New conversation</button>
+        <div class="section-label"><span>History</span><span id="historyCount">0</span></div>
+        <nav class="history-list" id="historyList" aria-label="Conversation history"></nav>
+        <div class="provider-status"><span class="status-dot"></span><div><strong id="providerName">Mock router</strong><small id="providerHint">Ready without an endpoint</small></div></div>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="chat-header">
+          <button class="mobile-menu" id="menuButton" type="button" aria-label="Open conversation history">☰</button>
+          <div><p class="eyebrow">PLAYGROUND</p><h1 id="conversationTitle">New conversation</h1></div>
+          <div class="header-badge"><span></span><strong id="headerProvider">SIMULATION</strong></div>
+        </header>
+        <section class="messages" id="messages" aria-live="polite">
+          <div class="empty-state" id="emptyState">
+            <div class="route-visual" aria-hidden="true"><i></i><b>MR</b><i></i></div>
+            <p class="eyebrow">FIFTEEN LEVELS. ONE ROUTER.</p>
+            <h2>See model selection<br>change with the work.</h2>
+            <p>Choose a scenario or write your own prompt. Every response records the selected model, token use, and latency.</p>
+            <button type="button" id="startScenarioButton">Start with a scenario <span aria-hidden="true">→</span></button>
+          </div>
+        </section>
+        <footer class="composer-wrap">
+          <div class="complexity-control">
+            <label for="complexity"><span>Prompt complexity</span><strong id="complexityValue">5 / 10</strong></label>
+            <input id="complexity" type="range" min="1" max="15" value="5" aria-describedby="complexityLabels">
+            <div class="range-labels" id="complexityLabels"><span>Direct</span><span>Multi-step</span><span>Expert synthesis</span></div>
+          </div>
+          <form class="composer" id="messageForm">
+            <textarea id="messageInput" rows="2" maxlength="12000" placeholder="Ask the router anything…" aria-label="Message" required></textarea>
+            <button class="send-button" id="sendButton" type="submit" aria-label="Send message">↑</button>
+          </form>
+          <p class="composer-note">Enter to send · Shift + Enter for a new line</p>
+        </footer>
+      </main>
+
+      <aside class="inspector-panel" id="inspectorPanel">
+        <div class="inspector-tabs" role="tablist">
+          <button class="tab active" data-tab="scenarios" role="tab" aria-selected="true">Scenarios</button>
+          <button class="tab" data-tab="analytics" role="tab" aria-selected="false">Analytics</button>
+          <button class="tab" data-tab="logs" role="tab" aria-selected="false">Logs</button>
+          <button class="close-inspector" id="closeInspector" type="button" aria-label="Close inspector">×</button>
+        </div>
+        <section id="scenariosTab" class="tab-content">
+          <div class="panel-intro"><p class="eyebrow">COMPLEXITY LADDER</p><h2>Test the routing range</h2><p>Run prompts from direct recall to expert synthesis.</p></div>
+          <div class="ladder-runner">
+            <button class="ladder-button" id="runLadderButton" type="button"><span class="ladder-icon" aria-hidden="true">▶</span><span class="ladder-label">Run all 15 scenarios</span></button>
+            <p class="ladder-hint" id="ladderHint">Auto-runs each level in a fresh conversation and fills analytics live.</p>
+            <div class="ladder-progress" id="ladderProgress" hidden><div class="ladder-bar"><span id="ladderBarFill"></span></div><small id="ladderProgressText">0 / 15</small></div>
+          </div>
+          <div class="scenario-list" id="scenarioList"></div>
+        </section>
+        <section id="analyticsTab" class="tab-content hidden">
+          <div class="panel-intro"><p class="eyebrow">LIVE TELEMETRY</p><h2>Routing evidence</h2><p>Scoped to the current conversation. Create or open another conversation to see its own evidence.</p></div>
+          <div class="logs-toolbar"><span>Reset all conversations and analytics</span><button type="button" class="danger-button" id="clearAllButton">Clear all data</button></div>
+          <div class="metric-grid" id="metricGrid"></div>
+          <div class="cost-card" id="costCard" hidden>
+            <div class="cost-headline"><span class="eyebrow">COST vs BASELINE</span><strong id="savingsPct">0%</strong></div>
+            <div class="cost-bar"><span id="costBarFill"></span></div>
+            <div class="cost-legend"><span><em>Routed</em><strong id="actualCost">$0.0000</strong></span><span><em id="baselineLabel">Baseline</em><strong id="baselineCost">$0.0000</strong></span><span><em>Saved</em><strong id="savedCost">$0.0000</strong></span></div>
+          </div>
+          <h3>Model distribution</h3>
+          <div class="model-chart" id="modelChart"></div>
+          <h3>Complexity trail</h3>
+          <div class="complexity-trail" id="complexityTrail"></div>
+        </section>
+        <section id="logsTab" class="tab-content hidden">
+          <div class="panel-intro"><p class="eyebrow">LIVE STREAM</p><h2>Foundry API calls</h2><p>Every request and response to your Model Router deployment as it happens.</p></div>
+          <div class="logs-toolbar"><span id="logsCount">0 events</span><button type="button" class="secondary" id="logsClear">Clear</button></div>
+          <div class="logs-list" id="logsList"><p class="empty-analytics">Waiting for the first Foundry call…</p></div>
+        </section>
+      </aside>
+      <button class="mobile-inspector" id="inspectorButton" type="button">Scenarios & analytics</button>
+      <div class="scrim" id="scrim"></div>
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

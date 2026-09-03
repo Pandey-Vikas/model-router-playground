@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RouteLab setup</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#7d8590; --accent:#2f81f7; --good:#3fb950; --bad:#f85149; --warn:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 16px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  .app { max-width: 960px; margin: 48px auto; padding: 0 24px; }
+  header h1 { margin: 0 0 6px; font-size: 30px; }
+  header p { margin: 0 0 28px; color: var(--muted); font-size: 16px; }
+  .steps { display: flex; gap: 8px; margin-bottom: 24px; }
+  .steps span { flex:1; text-align:center; padding: 12px 14px; border-radius: 8px; background: var(--panel); border:1px solid var(--border); color: var(--muted); font-size: 14px; font-weight: 500; }
+  .steps span.active { color: var(--text); border-color: var(--accent); }
+  .steps span.done { color: var(--good); border-color: var(--good); }
+  .panel { background: var(--panel); border:1px solid var(--border); border-radius: 10px; padding: 32px; }
+  h2 { margin: 0 0 10px; font-size: 22px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 15px; }
+  button { background: var(--accent); color: white; border: 0; padding: 13px 24px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 15px; font-weight: 500; }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  select, input[type=text], input[type=password] { width: 100%; background: var(--bg); border:1px solid var(--border); border-radius: 8px; padding: 13px 14px; color: var(--text); font: inherit; font-size: 15px; }
+  label { display:block; margin: 16px 0 8px; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing:.06em; font-weight: 600; }
+  .footer { display:flex; justify-content:space-between; margin-top: 28px; gap: 10px; }
+  .status { margin-top: 14px; font-size: 14px; }
+  .status.ok { color: var(--good); }
+  .status.err { color: var(--bad); }
+  .status.info { color: var(--muted); }
+  pre { background: var(--bg); border:1px solid var(--border); border-radius: 8px; padding: 14px; overflow: auto; font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
+  .radio { display: flex; gap: 10px; align-items: center; padding: 13px; border:1px solid var(--border); border-radius: 8px; margin-bottom: 10px; cursor: pointer; font-size: 15px; }
+  .radio input { width: auto; transform: scale(1.2); }
+  .warn { color: var(--warn); font-size: 13px; margin-top: 8px; }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>RouteLab setup</h1>
+    <p>Connect your Microsoft Foundry Model Router deployment. This wizard writes <code>.env</code> and launches the app.</p>
+  </header>
+  <div class="steps">
+    <span id="s1">1. Sign in</span>
+    <span id="s2">2. Subscription</span>
+    <span id="s3">3. Foundry resource</span>
+    <span id="s4">4. Deployment</span>
+    <span id="s5">5. Launch</span>
+  </div>
+  <div class="panel" id="panel"></div>
+</div>
+<script>
+const state = {
+  step: 1,
+  account: null,
+  subscription: null,
+  foundry: null,
+  deployment: null,
+  authMode: 'entra',
+  apiKey: '',
+  apiVersion: '2024-10-21'
+};
+
+const panel = document.getElementById('panel');
+
+function setStep(n) {
+  state.step = n;
+  for (let i = 1; i <= 5; i++) {
+    const el = document.getElementById('s' + i);
+    el.classList.remove('active', 'done');
+    if (i < n) el.classList.add('done');
+    if (i === n) el.classList.add('active');
+  }
+  render();
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    method: options.method || 'GET',
+    headers: options.body ? { 'content-type': 'application/json' } : {},
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('Request failed: ' + res.status));
+  return data;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function render() {
+  const renderers = { 1: renderSignIn, 2: renderSubscription, 3: renderFoundry, 4: renderDeployment, 5: renderLaunch };
+  renderers[state.step]();
+}
+
+function loading(title, message) {
+  panel.innerHTML = '<h2>' + escapeHtml(title) + '</h2><div class="status info"><span class="spinner"></span>' + escapeHtml(message) + '</div>';
+}
+
+function showError(message) {
+  panel.innerHTML = '<h2>Something went wrong</h2><pre>' + escapeHtml(message) + '</pre><div class="footer"><button class="secondary" onclick="setStep(state.step)">Retry</button></div>';
+}
+
+async function renderSignIn() {
+  panel.innerHTML =
+    '<h2>Sign in to Azure</h2>' +
+    '<p class="sub">Click Sign in to get a device code. Enter it in your browser to complete Microsoft sign-in with the account you want to use for this app.</p>' +
+    (state.account
+      ? '<pre>Currently signed in: ' + escapeHtml(state.account.user.name) + '\nTenant: ' + escapeHtml(state.account.tenantId) + '</pre>' +
+        '<div class="footer"><button class="secondary" id="fresh">Sign in with a different account</button><button id="next">Continue with this account</button></div>'
+      : '<div class="footer"><span></span><button id="login">Sign in with Azure</button></div>');
+  const nextBtn = document.getElementById('next');
+  if (nextBtn) nextBtn.onclick = () => setStep(2);
+  const freshBtn = document.getElementById('fresh');
+  if (freshBtn) freshBtn.onclick = doLogin;
+  const loginBtn = document.getElementById('login');
+  if (loginBtn) loginBtn.onclick = doLogin;
+}
+
+async function doLogin() {
+  loading('Starting sign-in…', 'Opening Azure sign-in.');
+  try {
+    const info = await api('/api/login-start', { method: 'POST', body: {} });
+    // If az already completed by the time we got here (fast auth), skip straight to polling.
+    const status = await api('/api/login-poll').catch(() => ({ state: 'pending' }));
+    if (status.state === 'success') {
+      state.account = status.account;
+      renderSignIn();
+      return;
+    }
+    renderBrowserLogin(info);
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+window.doDeviceCode = async function () {
+  loading('Starting device-code sign-in…', 'Contacting Azure to get a device code.');
+  try {
+    const info = await api('/api/login-device-code', { method: 'POST', body: {} });
+    renderDeviceCode(info);
+  } catch (e) {
+    showError(e.message);
+  }
+};
+
+let pollTimer = null;
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    try {
+      const result = await api('/api/login-poll');
+      if (result.state === 'success') {
+        stopPolling();
+        state.account = result.account;
+        renderSignIn();
+      } else if (result.state === 'failed') {
+        stopPolling();
+        showError(result.error || 'Sign-in failed.');
+      }
+    } catch { /* keep polling */ }
+  }, 2000);
+}
+
+function renderBrowserLogin(info) {
+  panel.innerHTML =
+    '<h2>Complete sign-in</h2>' +
+    '<p class="sub">A Microsoft sign-in page should have opened automatically. If you do not see it, click the button below. This wizard advances when sign-in finishes.</p>' +
+    '<div class="footer" style="justify-content:center"><button id="open" style="padding:14px 28px;font-size:16px">Open Microsoft sign-in</button></div>' +
+    '<label style="margin-top:24px">Sign-in URL</label>' +
+    '<pre style="user-select:all;font-size:11px">' + escapeHtml(info.url) + '</pre>' +
+    '<div class="footer"><button class="secondary" id="cancel">Cancel</button><button class="secondary" id="device">Use device code instead</button></div>' +
+    '<div id="pollStatus" class="status info" style="margin-top:12px"><span class="spinner"></span>Waiting for you to complete sign-in in the browser…</div>';
+
+  document.getElementById('open').onclick = () => window.open(info.url, '_blank', 'noopener');
+  document.getElementById('cancel').onclick = async () => {
+    stopPolling();
+    try { await api('/api/login-cancel', { method: 'POST', body: {} }); } catch { /* ignore */ }
+    state.account = null;
+    renderSignIn();
+  };
+  document.getElementById('device').onclick = async () => {
+    stopPolling();
+    try { await api('/api/login-cancel', { method: 'POST', body: {} }); } catch { /* ignore */ }
+    window.doDeviceCode();
+  };
+  startPolling();
+}
+
+function renderDeviceCode(info) {
+  stopPolling();
+  panel.innerHTML =
+    '<h2>Enter this code to sign in</h2>' +
+    '<p class="sub">Open the URL below, paste the code, then complete Microsoft sign-in. This page advances automatically when you finish.</p>' +
+    '<label>Code</label>' +
+    '<pre style="font-size:22px;letter-spacing:.15em;text-align:center;padding:16px;">' + escapeHtml(info.code) + '</pre>' +
+    '<div class="footer"><button class="secondary" id="cancel">Cancel</button>' +
+    '<button id="copy" class="secondary">Copy code</button>' +
+    '<button id="open">Open sign-in page</button></div>' +
+    '<div id="pollStatus" class="status info" style="margin-top:12px"><span class="spinner"></span>Waiting for you to complete sign-in in the browser…</div>';
+
+  document.getElementById('open').onclick = async () => {
+    let copied = false;
+    try { await navigator.clipboard.writeText(info.code); copied = true; } catch { /* ignore */ }
+    const target = 'https://login.microsoftonline.com/common/oauth2/deviceauth?otc=' + encodeURIComponent(info.code);
+    window.open(target, '_blank', 'noopener');
+    const msg = copied
+      ? 'Sign-in page opened. If the code is not prefilled, press <b>Ctrl+V</b> to paste it (already copied to your clipboard).'
+      : 'Sign-in page opened. Type the code: <b>' + escapeHtml(info.code) + '</b>';
+    document.getElementById('pollStatus').innerHTML = '<span class="ok">' + msg + '</span>';
+  };
+  document.getElementById('copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(info.code); document.getElementById('pollStatus').innerHTML = '<span class="ok">Code copied. Now click "Open sign-in page".</span>'; } catch { /* ignore */ }
+  };
+  document.getElementById('cancel').onclick = async () => {
+    stopPolling();
+    try { await api('/api/login-cancel', { method: 'POST', body: {} }); } catch { /* ignore */ }
+    state.account = null;
+    renderSignIn();
+  };
+
+  startPolling();
+}
+
+async function renderSubscription() {
+  loading('Select subscription', 'Loading subscriptions…');
+  try {
+    const subs = await api('/api/subscriptions');
+    const enabled = subs.filter(s => s.state === 'Enabled');
+    if (!enabled.length) return showError('No enabled subscriptions found for this account.');
+    const defaultSub = enabled.find(s => s.isDefault) || enabled[0];
+    const others = enabled.filter(s => s.id !== defaultSub.id).sort((a, b) => a.name.localeCompare(b.name));
+    const ordered = [defaultSub, ...others];
+    panel.innerHTML =
+      '<h2>Select subscription</h2>' +
+      '<p class="sub">The default subscription for this account is preselected. Change it only if the Foundry resource lives elsewhere.</p>' +
+      '<div style="margin-bottom:8px;padding:10px 12px;border-radius:6px;border:1px solid var(--good);background:rgba(63,185,80,0.12);color:var(--good);font-weight:600">Preselected default: ' + escapeHtml(defaultSub.name) + '</div>' +
+      '<label for="sub">Subscription</label>' +
+      '<select id="sub">' + ordered.map(s => '<option value="' + escapeHtml(s.id) + '"' + (s.id === defaultSub.id ? ' selected' : '') + '>' + escapeHtml(s.name) + (s.id === defaultSub.id ? ' — default' : '') + '</option>').join('') + '</select>' +
+      '<div class="footer"><button class="secondary" onclick="setStep(1)">Back</button><button id="next">Continue</button></div>';
+    document.getElementById('next').onclick = async () => {
+      const id = document.getElementById('sub').value;
+      state.subscription = enabled.find(s => s.id === id);
+      loading('Selecting subscription…', 'Setting active subscription in Azure CLI.');
+      try {
+        await api('/api/subscription', { method: 'POST', body: { subscriptionId: id } });
+        setStep(3);
+      } catch (e) { showError(e.message); }
+    };
+  } catch (e) { showError(e.message); }
+}
+
+async function renderFoundry() {
+  loading('Select Foundry resource', 'Loading Azure OpenAI and AI Services resources…');
+  try {
+    const accounts = await api('/api/foundry-accounts');
+    if (!accounts.length) {
+      panel.innerHTML =
+        '<h2>No Foundry resources found</h2>' +
+        '<p class="sub">Create an Azure OpenAI or Azure AI Services resource in this subscription, then refresh.</p>' +
+        '<div class="footer"><button class="secondary" onclick="setStep(2)">Back</button><button onclick="renderFoundry()">Refresh</button></div>';
+      return;
+    }
+    panel.innerHTML =
+      '<h2>Select Foundry resource</h2>' +
+      '<p class="sub">Your Azure OpenAI or AI Services account.</p>' +
+      '<label for="acct">Resource</label>' +
+      '<select id="acct">' + accounts.map((a, i) => '<option value="' + i + '">' + escapeHtml(a.name) + ' (' + escapeHtml(a.kind) + ', ' + escapeHtml(a.location) + ')</option>').join('') + '</select>' +
+      '<div id="details" class="status info"></div>' +
+      '<div class="footer"><button class="secondary" onclick="setStep(2)">Back</button><button id="next">Continue</button></div>';
+    const details = document.getElementById('details');
+    function update() {
+      const a = accounts[document.getElementById('acct').value];
+      state.foundry = a;
+      details.innerHTML =
+        'Endpoint: ' + escapeHtml(a.endpoint) + '<br>Resource group: ' + escapeHtml(a.resourceGroup) +
+        (a.disableLocalAuth ? '<div class="warn">API-key auth is disabled on this resource. The wizard will use Microsoft Entra ID.</div>' : '');
+    }
+    document.getElementById('acct').onchange = update;
+    update();
+    document.getElementById('next').onclick = () => setStep(4);
+  } catch (e) { showError(e.message); }
+}
+
+async function renderDeployment() {
+  loading('Select deployment', 'Loading deployments in ' + state.foundry.name + '…');
+  try {
+    const query = '?name=' + encodeURIComponent(state.foundry.name) + '&resourceGroup=' + encodeURIComponent(state.foundry.resourceGroup);
+    const deps = await api('/api/deployments' + query);
+    if (!deps.length) {
+      panel.innerHTML =
+        '<h2>No deployments found</h2>' +
+        '<p class="sub">Deploy the <code>model-router</code> model in this resource, then refresh.</p>' +
+        '<div class="footer"><button class="secondary" onclick="setStep(3)">Back</button><button onclick="renderDeployment()">Refresh</button></div>';
+      return;
+    }
+    const suggested = deps.findIndex(d => (d.model || '').toLowerCase().includes('router'));
+    const selectedIndex = suggested >= 0 ? suggested : 0;
+    panel.innerHTML =
+      '<h2>Select deployment</h2>' +
+      '<p class="sub">Pick the Model Router deployment.</p>' +
+      '<label for="dep">Deployment</label>' +
+      '<select id="dep">' + deps.map((d, i) => '<option value="' + escapeHtml(d.name) + '"' + (i === selectedIndex ? ' selected' : '') + '>' + escapeHtml(d.name) + ' — ' + escapeHtml(d.model || 'unknown') + ' ' + escapeHtml(d.version || '') + '</option>').join('') + '</select>' +
+      '<label for="ver">API version</label>' +
+      '<input type="text" id="ver" value="' + escapeHtml(state.apiVersion) + '">' +
+      '<div class="footer"><button class="secondary" onclick="setStep(3)">Back</button><button id="next">Continue</button></div>';
+    document.getElementById('next').onclick = () => {
+      state.deployment = document.getElementById('dep').value;
+      state.apiVersion = document.getElementById('ver').value.trim() || '2024-10-21';
+      setStep(5);
+    };
+  } catch (e) { showError(e.message); }
+}
+
+function buildEnvPreview() {
+  const lines = [
+    'MODEL_PROVIDER=foundry',
+    'PORT=3000',
+    'DATABASE_PATH=./data/router-playground.db',
+    '',
+    'AZURE_OPENAI_ENDPOINT=' + state.foundry.endpoint.replace(/\/$/, ''),
+    'MODEL_ROUTER_DEPLOYMENT_NAME=' + state.deployment,
+    'AZURE_OPENAI_API_VERSION=' + state.apiVersion
+  ];
+  if (state.authMode === 'key' && state.apiKey) lines.push('AZURE_OPENAI_API_KEY=' + state.apiKey);
+  return lines.join('\n');
+}
+
+async function renderLaunch() {
+  const forceEntra = state.foundry.disableLocalAuth;
+  if (forceEntra) state.authMode = 'entra';
+  panel.innerHTML =
+    '<h2>Review and launch</h2>' +
+    '<p class="sub">The wizard will write <code>.env</code>, start the app, and open it in this tab.</p>' +
+    '<label>Authentication</label>' +
+    '<label class="radio"><input type="radio" name="auth" value="entra"' + (state.authMode === 'entra' ? ' checked' : '') + '> Microsoft Entra ID (uses your Azure CLI login)</label>' +
+    '<label class="radio"><input type="radio" name="auth" value="key"' + (state.authMode === 'key' ? ' checked' : '') + (forceEntra ? ' disabled' : '') + '> API key' + (forceEntra ? ' (disabled on this resource)' : '') + '</label>' +
+    '<div id="keyBox" style="display:' + (state.authMode === 'key' ? 'block' : 'none') + '">' +
+      '<label for="key">API key</label>' +
+      '<input type="password" id="key" value="' + escapeHtml(state.apiKey) + '" placeholder="Paste key, or fetch from Azure">' +
+      '<button class="secondary" id="fetchKey" style="margin-top:8px">Fetch key from Azure</button>' +
+    '</div>' +
+    '<label>.env preview</label>' +
+    '<pre id="preview"></pre>' +
+    '<div class="footer"><button class="secondary" onclick="setStep(4)">Back</button><button id="launch">Save and launch</button></div>' +
+    '<div id="launchStatus" class="status info"></div>';
+
+  function refresh() {
+    state.authMode = document.querySelector('input[name=auth]:checked').value;
+    document.getElementById('keyBox').style.display = state.authMode === 'key' ? 'block' : 'none';
+    document.getElementById('preview').textContent = buildEnvPreview();
+  }
+  document.querySelectorAll('input[name=auth]').forEach(r => r.onchange = refresh);
+  const keyInput = document.getElementById('key');
+  if (keyInput) keyInput.addEventListener('input', e => { state.apiKey = e.target.value; refresh(); });
+  const fetchBtn = document.getElementById('fetchKey');
+  if (fetchBtn) fetchBtn.addEventListener('click', async () => {
+    const status = document.getElementById('launchStatus');
+    status.innerHTML = '<span class="spinner"></span>Fetching key…';
+    try {
+      const query = '?name=' + encodeURIComponent(state.foundry.name) + '&resourceGroup=' + encodeURIComponent(state.foundry.resourceGroup);
+      const result = await api('/api/keys' + query);
+      if (result.key) {
+        state.apiKey = result.key;
+        document.getElementById('key').value = result.key;
+        refresh();
+        status.innerHTML = '<span class="ok">Key fetched.</span>';
+      } else {
+        status.innerHTML = '<span class="err">No key returned. Local authentication is likely disabled — use Entra ID instead.</span>';
+      }
+    } catch (e) {
+      status.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+    }
+  });
+  document.getElementById('launch').onclick = doLaunch;
+  refresh();
+}
+
+async function doLaunch() {
+  const status = document.getElementById('launchStatus');
+  const appTab = window.open('about:blank', '_blank');
+  if (appTab) {
+    try {
+      appTab.document.write('<!doctype html><title>Starting RouteLab…</title><body style="font:14px sans-serif;background:#0e1116;color:#e6edf3;text-align:center;padding-top:120px"><h2>Starting RouteLab…</h2><p>This tab will load the app as soon as it is ready.</p></body>');
+    } catch { /* ignore */ }
+  }
+  status.innerHTML = '<span class="spinner"></span>Writing .env and starting the app…';
+  try {
+    const payload = {
+      provider: 'foundry',
+      port: 3000,
+      endpoint: state.foundry.endpoint.replace(/\/$/, ''),
+      deployment: state.deployment,
+      apiVersion: state.apiVersion,
+      apiKey: state.authMode === 'key' ? state.apiKey : ''
+    };
+    const { url } = await api('/api/save-and-launch', { method: 'POST', body: payload });
+    status.innerHTML = '<span class="spinner"></span>Waiting for the app to come online…';
+    let ready = false;
+    for (let i = 0; i < 60 && !ready; i++) {
+      try {
+        const result = await api('/api/app-ready');
+        if (result.ready) { ready = true; break; }
+      } catch { /* keep polling */ }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (!ready) {
+      status.innerHTML = '<span class="err">The app did not respond in time. Try opening <a href="' + escapeHtml(url) + '" target="_blank">' + escapeHtml(url) + '</a> manually.</span>';
+      if (appTab) appTab.location.href = url;
+      return;
+    }
+    status.innerHTML = '<span class="ok">Ready. Opening ' + escapeHtml(url) + ' in a new tab…</span>';
+    if (appTab) {
+      appTab.location.href = url;
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+    fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
+  } catch (e) {
+    if (appTab) { try { appTab.close(); } catch { /* ignore */ } }
+    status.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+setStep(1);
+</script>
+</body>
+</html>
