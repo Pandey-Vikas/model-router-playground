@@ -209,9 +209,13 @@ async function runLadder() {
   state.ladderRunning = true;
   elements.runLadderButton.classList.add('running');
   elements.ladderProgress.hidden = false;
-  elements.ladderHint.textContent = 'Routing ten prompts across a fresh conversation…';
+  elements.ladderHint.textContent = 'Routing each prompt as an isolated call…';
   setComposerBusy(true);
   const total = state.scenarios.length;
+  const maxRetries = 2;
+  const retryDelayMs = 1500;
+  const perScenarioDelayMs = 500;
+  const failed = [];
   try {
     const created = await api('/api/conversations', { method: 'POST', body: JSON.stringify({ title: `Ladder benchmark · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` }) });
     state.conversation = { ...created, messages: [] };
@@ -220,19 +224,38 @@ async function runLadder() {
     switchTab('analytics');
     for (let index = 0; index < total; index += 1) {
       const scenario = state.scenarios[index];
-      elements.ladderProgressText.textContent = `${index + 1} / ${total} · L${scenario.level} ${scenario.title}`;
-      elements.ladderBarFill.style.width = `${((index) / total) * 100}%`;
+      if (index > 0) await new Promise((r) => setTimeout(r, perScenarioDelayMs));
       state.conversation.messages.push({ role: 'user', content: scenario.prompt, complexity_level: scenario.level });
       renderConversation();
-      const assistant = await sendPrompt(state.conversation.id, scenario.prompt, scenario.level, { noHistory: true });
-      state.conversation.messages.push(assistant);
+      let assistant = null;
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        const suffix = attempt > 0 ? ` · retry ${attempt}/${maxRetries}` : '';
+        elements.ladderProgressText.textContent = `${index + 1} / ${total} · L${scenario.level} ${scenario.title}${suffix}`;
+        elements.ladderBarFill.style.width = `${(index / total) * 100}%`;
+        try {
+          assistant = await sendPrompt(state.conversation.id, scenario.prompt, scenario.level, { noHistory: true });
+          break;
+        } catch (error) {
+          if (attempt === maxRetries) {
+            failed.push({ level: scenario.level, title: scenario.title, error: error.message });
+            break;
+          }
+          await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+        }
+      }
+      if (assistant) {
+        state.conversation.messages.push(assistant);
+      } else {
+        state.conversation.messages.push({ role: 'assistant', content: `⚠️ Skipped after ${maxRetries} retries. Continuing the ladder.`, routed_model: 'skipped', complexity_level: scenario.level });
+      }
       renderConversation();
       await refreshAnalytics();
     }
     elements.ladderBarFill.style.width = '100%';
-    elements.ladderProgressText.textContent = `${total} / ${total} · complete`;
+    const summary = failed.length ? `${total - failed.length} / ${total} complete · ${failed.length} skipped` : `${total} / ${total} · complete`;
+    elements.ladderProgressText.textContent = summary;
     await refreshHistory();
-    showToast('Ladder benchmark complete.');
+    showToast(failed.length ? `Ladder finished with ${failed.length} skipped scenario${failed.length === 1 ? '' : 's'} — see Logs tab for details.` : 'Ladder benchmark complete.');
   } catch (error) {
     showToast(`Ladder stopped: ${error.message}`);
   } finally {
@@ -240,7 +263,7 @@ async function runLadder() {
     elements.runLadderButton.classList.remove('running');
     setComposerBusy(false);
     elements.ladderHint.textContent = 'Auto-runs each level in a fresh conversation and fills analytics live.';
-    setTimeout(() => { elements.ladderProgress.hidden = true; elements.ladderBarFill.style.width = '0%'; }, 4000);
+    setTimeout(() => { elements.ladderProgress.hidden = true; elements.ladderBarFill.style.width = '0%'; }, 6000);
   }
 }
 

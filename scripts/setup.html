@@ -326,7 +326,7 @@ async function renderDeployment() {
     const balancedIdx = findBy('balanced') >= 0 ? findBy('balanced') : (routerDeps[0] ? deps.indexOf(routerDeps[0]) : 0);
     const costIdx = findBy('cost') >= 0 ? findBy('cost') : balancedIdx;
     const qualityIdx = findBy('quality') >= 0 ? findBy('quality') : balancedIdx;
-    const optionsFor = (selectedIdx) => deps.map((d, i) => '<option value="' + escapeHtml(d.name) + '"' + (i === selectedIdx ? ' selected' : '') + '>' + escapeHtml(d.name) + ' — ' + escapeHtml(d.model || 'unknown') + '</option>').join('');
+    const optionsFor = (selectedIdx) => deps.map((d, i) => '<option value="' + escapeHtml(d.name) + '"' + (i === selectedIdx ? ' selected' : '') + '>' + escapeHtml(d.name) + ' — ' + escapeHtml(d.model || 'unknown') + ' · v' + escapeHtml(d.version || 'unknown') + '</option>').join('');
     panel.innerHTML =
       '<h2>Assign deployments to router modes</h2>' +
       '<p class="sub">Each mode routes to its own deployment. If you only have one, leave all three the same and the app will show a banner explaining why.</p>' +
@@ -337,8 +337,9 @@ async function renderDeployment() {
       '<select id="depCost">' + optionsFor(costIdx) + '</select>' +
       '<label for="depQuality">Quality deployment</label>' +
       '<select id="depQuality">' + optionsFor(qualityIdx) + '</select>' +
-      '<label for="ver">API version</label>' +
+      '<label for="ver">Azure OpenAI REST API version</label>' +
       '<input type="text" id="ver" value="' + escapeHtml(state.apiVersion) + '">' +
+      '<div class="warn" style="margin-top:6px">This is the <b>REST API version</b> (shape of the HTTP request), not the Model Router version. The <b>Model Router version</b> (e.g. <code>2025-11-18</code>) shown next to each deployment above is set at deployment time in Foundry and cannot be changed here.</div>' +
       '<div class="footer"><button class="secondary" onclick="setStep(3)">Back</button><button class="secondary" onclick="renderDeployment()">Refresh</button><button id="next">Continue</button></div>';
     document.getElementById('next').onclick = () => {
       state.deploymentBalanced = document.getElementById('depBalanced').value;
