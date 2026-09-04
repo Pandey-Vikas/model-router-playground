@@ -43,7 +43,17 @@ button { color: inherit; cursor: pointer; }
 .provider-status strong { font-size: 11px; }
 .status-dot { width: 8px; height: 8px; border: 2px solid var(--surface); border-radius: 50%; background: #38a06d; box-shadow: 0 0 0 1px #38a06d; }
 .chat-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--surface); overflow: hidden; }
-.chat-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 13px 25px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.chat-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 13px 25px; border-bottom: 1px solid var(--line); flex-shrink: 0; gap: 16px; }
+
+.mode-selector { display: flex; gap: 4px; padding: 4px; background: var(--paper); border: 1px solid var(--line); border-radius: 999px; }
+.mode-pill { padding: 6px 16px; border: 0; background: transparent; color: var(--muted); font: 600 12px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; border-radius: 999px; }
+.mode-pill:hover { color: var(--ink); }
+.mode-pill.active { background: var(--ink); color: white; }
+.mode-pill.active:hover { color: white; }
+.mode-pill:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: line-through; }
+
+.mode-banner { padding: 8px 25px; background: #fff8e1; border-bottom: 1px solid #f0e3a5; color: #8a6d3b; font-size: 12px; flex-shrink: 0; }
+.mode-banner b { font-weight: 600; }
 .chat-header h1 { max-width: 500px; margin: 2px 0 0; overflow: hidden; font-size: 16px; white-space: nowrap; text-overflow: ellipsis; }
 .eyebrow { margin: 0; color: var(--green); font: 500 9px DM Mono, monospace; letter-spacing: 0.09em; }
 .header-badge { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; font: 500 9px DM Mono, monospace; }

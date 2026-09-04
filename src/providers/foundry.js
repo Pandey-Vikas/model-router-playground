@@ -28,9 +28,11 @@ async function getEntraToken() {
   }
 }
 
-export async function foundryChat({ messages }) {
+export async function foundryChat({ messages, routingMode }) {
   const endpoint = required('AZURE_OPENAI_ENDPOINT').replace(/\/$/, '');
-  const deployment = required('MODEL_ROUTER_DEPLOYMENT_NAME');
+  const modeKey = ['balanced', 'cost', 'quality'].includes(routingMode) ? routingMode : 'balanced';
+  const modeDeployment = process.env[`MODEL_ROUTER_DEPLOYMENT_${modeKey.toUpperCase()}`];
+  const deployment = modeDeployment || required('MODEL_ROUTER_DEPLOYMENT_NAME');
   const apiKey = process.env.AZURE_OPENAI_API_KEY;
   const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2025-11-18';
   const systemPrompt = process.env.MODEL_ROUTER_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
@@ -41,7 +43,7 @@ export async function foundryChat({ messages }) {
 
   const payload = messages[0]?.role === 'system' ? messages : [{ role: 'system', content: systemPrompt }, ...messages];
   const requestUrl = `${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
-  pushLog({ kind: 'request', method: 'POST', url: requestUrl, deployment, auth: apiKey ? 'api-key' : 'entra-id', messageCount: payload.length });
+  pushLog({ kind: 'request', method: 'POST', url: requestUrl, deployment, routingMode: modeKey, auth: apiKey ? 'api-key' : 'entra-id', messageCount: payload.length });
   const startedAt = performance.now();
   let response;
   try {

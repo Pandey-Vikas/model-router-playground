@@ -24,8 +24,14 @@
         <header class="chat-header">
           <button class="mobile-menu" id="menuButton" type="button" aria-label="Open conversation history">☰</button>
           <div><p class="eyebrow">PLAYGROUND</p><h1 id="conversationTitle">New conversation</h1></div>
+          <div class="mode-selector" id="modeSelector" role="tablist" aria-label="Router mode">
+            <button type="button" data-mode="balanced" class="mode-pill active" role="tab" aria-selected="true">Balanced</button>
+            <button type="button" data-mode="cost" class="mode-pill" role="tab" aria-selected="false">Cost</button>
+            <button type="button" data-mode="quality" class="mode-pill" role="tab" aria-selected="false">Quality</button>
+          </div>
           <div class="header-badge"><span></span><strong id="headerProvider">SIMULATION</strong></div>
         </header>
+        <div class="mode-banner" id="modeBanner" hidden></div>
         <section class="messages" id="messages" aria-live="polite">
           <div class="empty-state" id="emptyState">
             <div class="route-visual" aria-hidden="true"><i></i><b>MR</b><i></i></div>

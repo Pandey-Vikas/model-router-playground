@@ -1,6 +1,6 @@
 import { tierFor, calculateCost, BASELINE_MODEL } from '/pricing.js';
 
-const state = { conversations: [], conversation: null, scenarios: [], provider: 'mock', analytics: null, ladderRunning: false };
+const state = { conversations: [], conversation: null, scenarios: [], provider: 'mock', analytics: null, ladderRunning: false, routingMode: 'balanced', deployments: {} };
 const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map((element) => [element.id, element]));
 
 async function api(path, options) {
@@ -170,7 +170,7 @@ function setComposerBusy(busy, sendLabel = '↑') {
 
 async function sendPrompt(conversationId, content, complexityLevel) {
   const assistant = await api(`/api/conversations/${conversationId}/messages`, {
-    method: 'POST', body: JSON.stringify({ content, complexityLevel })
+    method: 'POST', body: JSON.stringify({ content, complexityLevel, routingMode: state.routingMode })
   });
   return assistant;
 }
@@ -295,6 +295,40 @@ function subscribeToLogs() {
   } catch { /* ignore */ }
 }
 
+function wireModeSelector() {
+  if (!elements.modeSelector) return;
+  const buttons = elements.modeSelector.querySelectorAll('.mode-pill');
+  const fallback = state.deployments.balanced || state.deployments.cost || state.deployments.quality;
+  const distinctModes = new Set([state.deployments.balanced, state.deployments.cost, state.deployments.quality].filter(Boolean));
+  const singleDeployment = distinctModes.size <= 1;
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.routingMode = btn.dataset.mode;
+      buttons.forEach((b) => { b.classList.toggle('active', b === btn); b.setAttribute('aria-selected', b === btn ? 'true' : 'false'); });
+      refreshModeBanner();
+    });
+  });
+  refreshModeBanner(singleDeployment, fallback);
+}
+
+function refreshModeBanner(forceSingle, fallback) {
+  if (!elements.modeBanner) return;
+  const deployment = state.deployments[state.routingMode];
+  const balanced = state.deployments.balanced;
+  const cost = state.deployments.cost;
+  const quality = state.deployments.quality;
+  const distinct = new Set([balanced, cost, quality].filter(Boolean));
+  const isSingle = forceSingle ?? distinct.size <= 1;
+  if (state.provider !== 'foundry') { elements.modeBanner.hidden = true; return; }
+  if (isSingle) {
+    elements.modeBanner.hidden = false;
+    elements.modeBanner.innerHTML = `You have one deployment configured (<b>${escapeHtml(deployment || fallback || 'unknown')}</b>). All three modes will hit the same deployment. To see real Balanced/Cost/Quality differences, create three deployments in Foundry with different routing modes and set <code>MODEL_ROUTER_DEPLOYMENT_BALANCED</code>, <code>_COST</code>, and <code>_QUALITY</code> in .env.`;
+  } else {
+    elements.modeBanner.hidden = false;
+    elements.modeBanner.innerHTML = `Current mode: <b>${escapeHtml(state.routingMode)}</b> → deployment <b>${escapeHtml(deployment || 'not configured')}</b>. Switch pills above to route to a different deployment.`;
+  }
+}
+
 function closeDrawers() {
   elements.historyPanel.classList.remove('open');
   elements.inspectorPanel.classList.remove('open');
@@ -335,12 +369,13 @@ try {
   const [config, scenariosData, conversations, analytics] = await Promise.all([
     api('/api/config'), api('/api/scenarios'), api('/api/conversations'), api('/api/analytics')
   ]);
-  Object.assign(state, { provider: config.provider, scenarios: scenariosData, conversations, analytics });
+  Object.assign(state, { provider: config.provider, scenarios: scenariosData, conversations, analytics, deployments: config.deployments || {} });
   const isFoundry = state.provider === 'foundry';
   elements.providerName.textContent = isFoundry ? 'Foundry router' : 'Mock router';
   elements.providerHint.textContent = isFoundry ? 'Live endpoint connected' : 'Ready without an endpoint';
   elements.headerProvider.textContent = isFoundry ? 'LIVE FOUNDRY' : 'SIMULATION';
   renderHistory(); renderScenarios(); renderAnalytics(); renderConversation();
+  wireModeSelector();
   elements.logsClear?.addEventListener('click', () => { logEntries.length = 0; renderLogs(); });
   elements.clearAllButton?.addEventListener('click', async () => {
     if (!confirm('Delete all conversations and analytics? This cannot be undone.')) return;

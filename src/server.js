@@ -30,7 +30,15 @@ export function createApp({ database = createDatabase(), providerName = process.
   const server = createHttpServer(async (request, response) => {
     const url = new URL(request.url, 'http://localhost');
     try {
-      if (url.pathname === '/api/config' && request.method === 'GET') return sendJson(response, 200, { provider: providerName });
+      if (url.pathname === '/api/config' && request.method === 'GET') {
+        const fallback = process.env.MODEL_ROUTER_DEPLOYMENT_NAME || null;
+        const deployments = {
+          balanced: process.env.MODEL_ROUTER_DEPLOYMENT_BALANCED || fallback,
+          cost: process.env.MODEL_ROUTER_DEPLOYMENT_COST || fallback,
+          quality: process.env.MODEL_ROUTER_DEPLOYMENT_QUALITY || fallback
+        };
+        return sendJson(response, 200, { provider: providerName, deployments });
+      }
       if (url.pathname === '/api/scenarios' && request.method === 'GET') return sendJson(response, 200, scenarios);
       if (url.pathname === '/api/conversations' && request.method === 'GET') return sendJson(response, 200, database.listConversations());
       if (url.pathname === '/api/conversations' && request.method === 'POST') {
@@ -72,7 +80,8 @@ export function createApp({ database = createDatabase(), providerName = process.
         database.addMessage(conversationId, { role: 'user', content, complexityLevel });
         const current = database.getConversation(conversationId);
         const messages = current.messages.map(({ role, content: text }) => ({ role, content: text }));
-        const result = await provider({ messages, complexityLevel });
+        const routingMode = ['balanced', 'cost', 'quality'].includes(body.routingMode) ? body.routingMode : 'balanced';
+        const result = await provider({ messages, complexityLevel, routingMode });
         const assistant = database.addMessage(conversationId, { role: 'assistant', complexityLevel, ...result });
         return sendJson(response, 201, assistant);
       }
