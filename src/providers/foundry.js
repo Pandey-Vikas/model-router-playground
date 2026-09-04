@@ -37,7 +37,7 @@ export async function foundryChat({ messages, routingMode }) {
   const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2025-11-18';
   const systemPrompt = process.env.MODEL_ROUTER_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
   const maxTokens = Number(process.env.MODEL_ROUTER_MAX_OUTPUT_TOKENS) || 1024;
-  const timeoutMs = Number(process.env.MODEL_ROUTER_TIMEOUT_MS) || 60_000;
+  const timeoutMs = Number(process.env.MODEL_ROUTER_TIMEOUT_MS) || 120_000;
 
   const authHeaders = apiKey ? { 'api-key': apiKey } : { authorization: `Bearer ${await getEntraToken()}` };
 

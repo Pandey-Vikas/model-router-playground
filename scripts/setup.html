@@ -58,6 +58,9 @@ const state = {
   subscription: null,
   foundry: null,
   deployment: null,
+  deploymentBalanced: null,
+  deploymentCost: null,
+  deploymentQuality: null,
   authMode: 'entra',
   apiKey: '',
   apiVersion: '2024-10-21'
@@ -291,29 +294,57 @@ async function renderFoundry() {
 }
 
 async function renderDeployment() {
-  loading('Select deployment', 'Loading deployments in ' + state.foundry.name + '…');
+  loading('Select deployments', 'Loading deployments in ' + state.foundry.name + '…');
   try {
     const query = '?name=' + encodeURIComponent(state.foundry.name) + '&resourceGroup=' + encodeURIComponent(state.foundry.resourceGroup);
     const deps = await api('/api/deployments' + query);
+    const routerDeps = deps.filter(d => (d.model || '').toLowerCase().includes('router'));
+    const help =
+      '<details style="margin-bottom:16px;border:1px solid var(--border);border-radius:6px;padding:12px 14px">' +
+        '<summary style="cursor:pointer;font-weight:600">How to create three model-router deployments</summary>' +
+        '<p class="sub" style="margin-top:12px">To see real differences between Balanced, Cost, and Quality modes you need three separate <code>model-router</code> deployments in this resource, each configured with a different routing mode.</p>' +
+        '<p style="font-weight:600;margin-bottom:4px">Via Foundry Portal (recommended, only place that exposes routing mode):</p>' +
+        '<ol style="margin-top:0;padding-left:20px;color:var(--muted);font-size:13px;line-height:1.7">' +
+          '<li>Open <a href="https://ai.azure.com" target="_blank">https://ai.azure.com</a>, pick project on account <b>' + escapeHtml(state.foundry.name) + '</b>.</li>' +
+          '<li>Go to <b>Models + endpoints → Deploy model → Deploy base model</b>, search for <code>model-router</code>, click <b>Confirm</b>.</li>' +
+          '<li>Choose <b>Customize</b>. Name the deployment <code>mr-balanced</code>, set <b>Routing mode</b> = <b>Balanced</b>, Deployment type = <b>Global Standard</b>, Capacity = <b>1</b>. Click <b>Deploy</b>.</li>' +
+          '<li>Repeat step 3 two more times with names <code>mr-cost</code> (Routing mode = Cost) and <code>mr-quality</code> (Routing mode = Quality).</li>' +
+          '<li>Come back here and click <b>Refresh</b>.</li>' +
+        '</ol>' +
+        '<p style="font-weight:600;margin:12px 0 4px">Via Azure CLI (creates deployments; routing mode still has to be set in Portal after):</p>' +
+        '<pre style="user-select:all">az cognitiveservices account deployment create \\\n  --name ' + escapeHtml(state.foundry.name) + ' --resource-group ' + escapeHtml(state.foundry.resourceGroup) + ' \\\n  --deployment-name mr-balanced \\\n  --model-name model-router --model-version 2025-11-18 --model-format OpenAI \\\n  --sku-name GlobalStandard --sku-capacity 1\n\n# then mr-cost and mr-quality with the same command, changing --deployment-name</pre>' +
+      '</details>';
     if (!deps.length) {
       panel.innerHTML =
         '<h2>No deployments found</h2>' +
-        '<p class="sub">Deploy the <code>model-router</code> model in this resource, then refresh.</p>' +
+        '<p class="sub">Create a <code>model-router</code> deployment in this resource first, then refresh.</p>' +
+        help +
         '<div class="footer"><button class="secondary" onclick="setStep(3)">Back</button><button onclick="renderDeployment()">Refresh</button></div>';
       return;
     }
-    const suggested = deps.findIndex(d => (d.model || '').toLowerCase().includes('router'));
-    const selectedIndex = suggested >= 0 ? suggested : 0;
+    const findBy = (needle) => deps.findIndex(d => d.name.toLowerCase().includes(needle));
+    const balancedIdx = findBy('balanced') >= 0 ? findBy('balanced') : (routerDeps[0] ? deps.indexOf(routerDeps[0]) : 0);
+    const costIdx = findBy('cost') >= 0 ? findBy('cost') : balancedIdx;
+    const qualityIdx = findBy('quality') >= 0 ? findBy('quality') : balancedIdx;
+    const optionsFor = (selectedIdx) => deps.map((d, i) => '<option value="' + escapeHtml(d.name) + '"' + (i === selectedIdx ? ' selected' : '') + '>' + escapeHtml(d.name) + ' — ' + escapeHtml(d.model || 'unknown') + '</option>').join('');
     panel.innerHTML =
-      '<h2>Select deployment</h2>' +
-      '<p class="sub">Pick the Model Router deployment.</p>' +
-      '<label for="dep">Deployment</label>' +
-      '<select id="dep">' + deps.map((d, i) => '<option value="' + escapeHtml(d.name) + '"' + (i === selectedIndex ? ' selected' : '') + '>' + escapeHtml(d.name) + ' — ' + escapeHtml(d.model || 'unknown') + ' ' + escapeHtml(d.version || '') + '</option>').join('') + '</select>' +
+      '<h2>Assign deployments to router modes</h2>' +
+      '<p class="sub">Each mode routes to its own deployment. If you only have one, leave all three the same and the app will show a banner explaining why.</p>' +
+      help +
+      '<label for="depBalanced">Balanced deployment</label>' +
+      '<select id="depBalanced">' + optionsFor(balancedIdx) + '</select>' +
+      '<label for="depCost">Cost deployment</label>' +
+      '<select id="depCost">' + optionsFor(costIdx) + '</select>' +
+      '<label for="depQuality">Quality deployment</label>' +
+      '<select id="depQuality">' + optionsFor(qualityIdx) + '</select>' +
       '<label for="ver">API version</label>' +
       '<input type="text" id="ver" value="' + escapeHtml(state.apiVersion) + '">' +
-      '<div class="footer"><button class="secondary" onclick="setStep(3)">Back</button><button id="next">Continue</button></div>';
+      '<div class="footer"><button class="secondary" onclick="setStep(3)">Back</button><button class="secondary" onclick="renderDeployment()">Refresh</button><button id="next">Continue</button></div>';
     document.getElementById('next').onclick = () => {
-      state.deployment = document.getElementById('dep').value;
+      state.deploymentBalanced = document.getElementById('depBalanced').value;
+      state.deploymentCost = document.getElementById('depCost').value;
+      state.deploymentQuality = document.getElementById('depQuality').value;
+      state.deployment = state.deploymentBalanced;
       state.apiVersion = document.getElementById('ver').value.trim() || '2024-10-21';
       setStep(5);
     };
@@ -330,6 +361,9 @@ function buildEnvPreview() {
     'MODEL_ROUTER_DEPLOYMENT_NAME=' + state.deployment,
     'AZURE_OPENAI_API_VERSION=' + state.apiVersion
   ];
+  if (state.deploymentBalanced) lines.push('MODEL_ROUTER_DEPLOYMENT_BALANCED=' + state.deploymentBalanced);
+  if (state.deploymentCost) lines.push('MODEL_ROUTER_DEPLOYMENT_COST=' + state.deploymentCost);
+  if (state.deploymentQuality) lines.push('MODEL_ROUTER_DEPLOYMENT_QUALITY=' + state.deploymentQuality);
   if (state.authMode === 'key' && state.apiKey) lines.push('AZURE_OPENAI_API_KEY=' + state.apiKey);
   return lines.join('\n');
 }
@@ -399,6 +433,9 @@ async function doLaunch() {
       port: 3000,
       endpoint: state.foundry.endpoint.replace(/\/$/, ''),
       deployment: state.deployment,
+      deploymentBalanced: state.deploymentBalanced,
+      deploymentCost: state.deploymentCost,
+      deploymentQuality: state.deploymentQuality,
       apiVersion: state.apiVersion,
       apiKey: state.authMode === 'key' ? state.apiKey : ''
     };

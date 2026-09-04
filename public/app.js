@@ -168,9 +168,9 @@ function setComposerBusy(busy, sendLabel = '↑') {
   elements.runLadderButton.disabled = busy || state.ladderRunning;
 }
 
-async function sendPrompt(conversationId, content, complexityLevel) {
+async function sendPrompt(conversationId, content, complexityLevel, { noHistory = false } = {}) {
   const assistant = await api(`/api/conversations/${conversationId}/messages`, {
-    method: 'POST', body: JSON.stringify({ content, complexityLevel, routingMode: state.routingMode })
+    method: 'POST', body: JSON.stringify({ content, complexityLevel, routingMode: state.routingMode, noHistory })
   });
   return assistant;
 }
@@ -224,7 +224,7 @@ async function runLadder() {
       elements.ladderBarFill.style.width = `${((index) / total) * 100}%`;
       state.conversation.messages.push({ role: 'user', content: scenario.prompt, complexity_level: scenario.level });
       renderConversation();
-      const assistant = await sendPrompt(state.conversation.id, scenario.prompt, scenario.level);
+      const assistant = await sendPrompt(state.conversation.id, scenario.prompt, scenario.level, { noHistory: true });
       state.conversation.messages.push(assistant);
       renderConversation();
       await refreshAnalytics();

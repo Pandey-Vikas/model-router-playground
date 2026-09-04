@@ -131,6 +131,9 @@ function writeEnv(values) {
     `MODEL_ROUTER_DEPLOYMENT_NAME=${values.deployment}`,
     `AZURE_OPENAI_API_VERSION=${values.apiVersion}`
   ];
+  if (values.deploymentBalanced) lines.push(`MODEL_ROUTER_DEPLOYMENT_BALANCED=${values.deploymentBalanced}`);
+  if (values.deploymentCost) lines.push(`MODEL_ROUTER_DEPLOYMENT_COST=${values.deploymentCost}`);
+  if (values.deploymentQuality) lines.push(`MODEL_ROUTER_DEPLOYMENT_QUALITY=${values.deploymentQuality}`);
   if (values.apiKey) lines.push(`AZURE_OPENAI_API_KEY=${values.apiKey}`);
   writeFileSync(envPath, lines.join('\n') + '\n', 'utf8');
 }

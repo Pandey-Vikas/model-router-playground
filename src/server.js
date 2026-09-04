@@ -79,8 +79,9 @@ export function createApp({ database = createDatabase(), providerName = process.
 
         database.addMessage(conversationId, { role: 'user', content, complexityLevel });
         const current = database.getConversation(conversationId);
-        const messages = current.messages.map(({ role, content: text }) => ({ role, content: text }));
+        const historyMessages = current.messages.map(({ role, content: text }) => ({ role, content: text }));
         const routingMode = ['balanced', 'cost', 'quality'].includes(body.routingMode) ? body.routingMode : 'balanced';
+        const messages = body.noHistory ? [{ role: 'user', content }] : historyMessages;
         const result = await provider({ messages, complexityLevel, routingMode });
         const assistant = database.addMessage(conversationId, { role: 'assistant', complexityLevel, ...result });
         return sendJson(response, 201, assistant);
