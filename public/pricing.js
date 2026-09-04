@@ -31,7 +31,7 @@ export const PRICING = {
   'llama-4-maverick-17b-128e-instruct-fp8':     { input: 0.20, output: 0.90, tier: 'open' }
 };
 
-export const BASELINE_MODEL = 'gpt-5';
+export const BASELINE_MODEL = 'claude-opus-4-8';
 export const DEFAULT_PRICE = { input: 1.00, output: 4.00, tier: 'standard' };
 export const TIER_ORDER = ['nano', 'mini', 'standard', 'advanced', 'reasoning', 'frontier', 'open'];
 

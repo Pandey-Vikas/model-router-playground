@@ -11,7 +11,7 @@ function required(name) {
   return value;
 }
 
-const DEFAULT_SYSTEM_PROMPT = 'You are a concise, helpful assistant. Answer clearly and match the depth of the question.';
+const DEFAULT_SYSTEM_PROMPT = 'Be brief.';
 
 let cachedToken = null;
 
@@ -28,29 +28,32 @@ async function getEntraToken() {
   }
 }
 
-export async function foundryChat({ messages, routingMode }) {
+export async function foundryChat({ messages, routingMode, deploymentOverride }) {
   const endpoint = required('AZURE_OPENAI_ENDPOINT').replace(/\/$/, '');
   const modeKey = ['balanced', 'cost', 'quality'].includes(routingMode) ? routingMode : 'balanced';
   const modeDeployment = process.env[`MODEL_ROUTER_DEPLOYMENT_${modeKey.toUpperCase()}`];
-  const deployment = modeDeployment || required('MODEL_ROUTER_DEPLOYMENT_NAME');
+  const deployment = deploymentOverride || modeDeployment || required('MODEL_ROUTER_DEPLOYMENT_NAME');
   const apiKey = process.env.AZURE_OPENAI_API_KEY;
   const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2025-11-18';
   const systemPrompt = process.env.MODEL_ROUTER_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
-  const maxTokens = Number(process.env.MODEL_ROUTER_MAX_OUTPUT_TOKENS) || 1024;
+  const maxTokensEnv = process.env.MODEL_ROUTER_MAX_OUTPUT_TOKENS;
+  const maxTokens = maxTokensEnv ? Number(maxTokensEnv) : null;
   const timeoutMs = Number(process.env.MODEL_ROUTER_TIMEOUT_MS) || 120_000;
 
   const authHeaders = apiKey ? { 'api-key': apiKey } : { authorization: `Bearer ${await getEntraToken()}` };
 
-  const payload = messages[0]?.role === 'system' ? messages : [{ role: 'system', content: systemPrompt }, ...messages];
+  const payload = messages[0]?.role === 'system' || !systemPrompt ? messages : [{ role: 'system', content: systemPrompt }, ...messages];
   const requestUrl = `${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
-  pushLog({ kind: 'request', method: 'POST', url: requestUrl, deployment, routingMode: modeKey, auth: apiKey ? 'api-key' : 'entra-id', messageCount: payload.length });
+  pushLog({ kind: 'request', method: 'POST', url: requestUrl, deployment, routingMode: modeKey, auth: apiKey ? 'api-key' : 'entra-id', messageCount: payload.length, maxTokens: maxTokens || 'model default' });
   const startedAt = performance.now();
+  const requestBody = { messages: payload };
+  if (maxTokens) requestBody.max_completion_tokens = maxTokens;
   let response;
   try {
     response = await fetch(requestUrl, {
       method: 'POST',
       headers: { ...authHeaders, 'content-type': 'application/json' },
-      body: JSON.stringify({ messages: payload, max_completion_tokens: maxTokens }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(timeoutMs)
     });
   } catch (error) {

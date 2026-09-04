@@ -32,7 +32,35 @@ export function createDatabase(filename = process.env.DATABASE_PATH || './data/r
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
+    CREATE TABLE IF NOT EXISTS eval_runs (
+      id TEXT PRIMARY KEY,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      status TEXT NOT NULL,
+      router_deployment TEXT,
+      baseline_deployment TEXT,
+      judge_deployment TEXT,
+      config TEXT,
+      dataset_name TEXT,
+      run_dir TEXT,
+      dashboard_path TEXT,
+      error TEXT,
+      summary_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_eval_runs_started ON eval_runs(started_at DESC);
   `);
+
+  const existingCols = new Set(database.prepare("PRAGMA table_info(messages)").all().map((r) => r.name));
+  const migrations = [
+    ['quality_accuracy', 'INTEGER'],
+    ['quality_helpfulness', 'INTEGER'],
+    ['quality_notes', 'TEXT'],
+    ['quality_judge', 'TEXT'],
+    ['quality_scored_at', 'TEXT']
+  ];
+  for (const [col, type] of migrations) {
+    if (!existingCols.has(col)) database.exec(`ALTER TABLE messages ADD COLUMN ${col} ${type}`);
+  }
 
   const listConversationsStatement = database.prepare(`
     SELECT c.*, COUNT(m.id) AS message_count,
@@ -82,6 +110,31 @@ export function createDatabase(filename = process.env.DATABASE_PATH || './data/r
     deleteConversation(id) {
       return database.prepare('DELETE FROM conversations WHERE id = ?').run(id).changes > 0;
     },
+    saveQualityScore(messageId, { accuracy, helpfulness, notes, judge }) {
+      const now = new Date().toISOString();
+      return database.prepare(`
+        UPDATE messages SET quality_accuracy = ?, quality_helpfulness = ?, quality_notes = ?, quality_judge = ?, quality_scored_at = ?
+        WHERE id = ? AND role = 'assistant'
+      `).run(accuracy ?? null, helpfulness ?? null, notes ?? null, judge ?? null, now, messageId).changes > 0;
+    },
+    createEvalRun({ id, routerDeployment, baselineDeployment, judgeDeployment, config, datasetName }) {
+      const startedAt = new Date().toISOString();
+      database.prepare(`
+        INSERT INTO eval_runs (id, started_at, status, router_deployment, baseline_deployment, judge_deployment, config, dataset_name)
+        VALUES (?, ?, 'running', ?, ?, ?, ?, ?)
+      `).run(id, startedAt, routerDeployment ?? null, baselineDeployment ?? null, judgeDeployment ?? null, config ?? null, datasetName ?? null);
+      return id;
+    },
+    finishEvalRun(id, { status, runDir, dashboardPath, error, summaryJson }) {
+      const completedAt = new Date().toISOString();
+      database.prepare(`
+        UPDATE eval_runs SET status = ?, completed_at = ?, run_dir = ?, dashboard_path = ?, error = ?, summary_json = ?
+        WHERE id = ?
+      `).run(status, completedAt, runDir ?? null, dashboardPath ?? null, error ?? null, summaryJson ?? null, id);
+    },
+    listEvalRuns(limit = 20) {
+      return database.prepare(`SELECT * FROM eval_runs ORDER BY started_at DESC LIMIT ?`).all(limit);
+    },
     clearAll() {
       database.prepare('DELETE FROM conversations').run();
     },
@@ -104,6 +157,8 @@ export function createDatabase(filename = process.env.DATABASE_PATH || './data/r
       const complexityRows = database.prepare(`
         SELECT complexity_level AS level, routed_model AS model, COUNT(*) AS responses,
           ROUND(AVG(total_tokens)) AS avg_tokens, ROUND(AVG(latency_ms)) AS avg_latency_ms,
+          ROUND(AVG(quality_accuracy), 2) AS avg_accuracy,
+          ROUND(AVG(quality_helpfulness), 2) AS avg_helpfulness,
           ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY complexity_level), 1) AS share_pct
         FROM messages WHERE ${where} AND complexity_level IS NOT NULL
         GROUP BY complexity_level, routed_model ORDER BY complexity_level, responses DESC

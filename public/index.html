@@ -32,6 +32,21 @@
           <div class="header-badge"><span></span><strong id="headerProvider">SIMULATION</strong></div>
         </header>
         <div class="mode-banner" id="modeBanner" hidden></div>
+        <div class="ladder-banner" id="ladderBanner" hidden>
+          <div class="ladder-banner-info"><strong id="ladderBannerText">Ladder running…</strong><small id="ladderBannerHint">Routing scenarios to Foundry</small></div>
+          <button type="button" class="ladder-banner-stop" id="ladderBannerStop">Stop</button>
+        </div>
+        <div class="eval-lockout" id="evalLockout" hidden>
+          <div class="eval-lockout-inner">
+            <div class="eval-lockout-spinner"></div>
+            <h2>Evaluation in progress</h2>
+            <p>Chat is paused while the Auto-Evaluation toolkit is running. Watch the Evaluation tab → live console for progress.</p>
+            <div style="display:flex;gap:12px;justify-content:center">
+              <button type="button" id="evalLockoutJump">Open Evaluation tab</button>
+              <button type="button" id="evalLockoutStop" class="danger-button">Stop evaluation</button>
+            </div>
+          </div>
+        </div>
         <section class="messages" id="messages" aria-live="polite">
           <div class="empty-state" id="emptyState">
             <div class="route-visual" aria-hidden="true"><i></i><b>MR</b><i></i></div>
@@ -60,25 +75,42 @@
           <button class="tab active" data-tab="scenarios" role="tab" aria-selected="true">Scenarios</button>
           <button class="tab" data-tab="analytics" role="tab" aria-selected="false">Analytics</button>
           <button class="tab" data-tab="logs" role="tab" aria-selected="false">Logs</button>
+          <button class="tab" data-tab="eval" role="tab" aria-selected="false">Evaluation</button>
           <button class="close-inspector" id="closeInspector" type="button" aria-label="Close inspector">×</button>
         </div>
         <section id="scenariosTab" class="tab-content">
           <div class="panel-intro"><p class="eyebrow">COMPLEXITY LADDER</p><h2>Test the routing range</h2><p>Run prompts from direct recall to expert synthesis.</p></div>
           <div class="ladder-runner">
-            <button class="ladder-button" id="runLadderButton" type="button"><span class="ladder-icon" aria-hidden="true">▶</span><span class="ladder-label">Run all 30 scenarios</span></button>
-            <p class="ladder-hint" id="ladderHint">Auto-runs each level in a fresh conversation and fills analytics live.</p>
-            <div class="ladder-progress" id="ladderProgress" hidden><div class="ladder-bar"><span id="ladderBarFill"></span></div><small id="ladderProgressText">0 / 30</small></div>
+            <div class="ladder-choice">
+              <button class="ladder-button quick" id="runLadderQuickButton" type="button"><span class="ladder-icon" aria-hidden="true">▶</span><span class="ladder-label">Run 15 (quick)</span></button>
+              <button class="ladder-button full" id="runLadderButton" type="button"><span class="ladder-icon" aria-hidden="true">▶</span><span class="ladder-label">Run 30 (full)</span></button>
+            </div>
+            <p class="ladder-hint" id="ladderHint">Quick = curated 15-prompt spread across all tiers (~2 min). Full = all 30 (~5 min).</p>
+            <div class="ladder-progress" id="ladderProgress" hidden><div class="ladder-bar"><span id="ladderBarFill"></span></div><small id="ladderProgressText">0 / 30</small><button type="button" class="ladder-stop" id="ladderStopButton" hidden>Stop</button></div>
           </div>
+          <details class="demo-guide">
+            <summary>How to run the full demo (5 min)</summary>
+            <ol>
+              <li>Pick a mode above the chat header — <b>Balanced</b> first.</li>
+              <li>Click <b>Run 15 (quick)</b>. Watch the routing evidence fill in the Analytics tab.</li>
+              <li>When done, switch mode to <b>Cost</b> → Run 15 again. Then <b>Quality</b> → Run 15.</li>
+              <li>Open the <b>Analytics</b> tab → click <b>Compare…</b> → tick all three ladder runs → <b>Show comparison</b>.</li>
+              <li>Table shows which model each mode picked per prompt, with cost, tokens, latency side by side.</li>
+              <li>Optional: <b>Evaluation</b> tab → run the external toolkit for judged quality scores.</li>
+            </ol>
+          </details>
           <div class="scenario-list" id="scenarioList"></div>
         </section>
         <section id="analyticsTab" class="tab-content hidden">
           <div class="panel-intro"><p class="eyebrow">LIVE TELEMETRY</p><h2>Routing evidence</h2><p>Scoped to the current conversation. Create or open another conversation to see its own evidence.</p></div>
           <div class="logs-toolbar"><span>Reset all conversations and analytics</span><button type="button" class="danger-button" id="clearAllButton">Clear all data</button></div>
+          <div class="logs-toolbar"><span>Compare multiple conversations side by side</span><button type="button" class="compare-button" id="compareButton">Compare…</button></div>
           <div class="metric-grid" id="metricGrid"></div>
           <div class="cost-card" id="costCard" hidden>
             <div class="cost-headline"><span class="eyebrow">COST vs BASELINE</span><strong id="savingsPct">0%</strong></div>
             <div class="cost-bar"><span id="costBarFill"></span></div>
             <div class="cost-legend"><span><em>Routed</em><strong id="actualCost">$0.0000</strong></span><span><em id="baselineLabel">Baseline</em><strong id="baselineCost">$0.0000</strong></span><span><em>Saved</em><strong id="savedCost">$0.0000</strong></span></div>
+            <small class="cost-explain">Baseline = the most expensive model in the router pool. Actual = sum of each response's input × input-price + output × output-price for the model Router actually picked. Saved = baseline − actual, expressed as % of baseline. Prices are approximate USD per 1M tokens, defined in <code>public/pricing.js</code>.</small>
           </div>
           <h3>Model distribution</h3>
           <div class="model-chart" id="modelChart"></div>
@@ -90,11 +122,80 @@
           <div class="logs-toolbar"><span id="logsCount">0 events</span><button type="button" class="secondary" id="logsClear">Clear</button></div>
           <div class="logs-list" id="logsList"><p class="empty-analytics">Waiting for the first Foundry call…</p></div>
         </section>
+        <section id="evalTab" class="tab-content hidden">
+          <div class="panel-intro"><p class="eyebrow">BENCHMARK</p><h2>Run a full evaluation</h2><p>The <a href="https://github.com/microsoft-foundry/Model-Router-Auto-Evaluation" target="_blank">Model Router Auto Evaluation toolkit</a> runs your prompts against router + baseline, scores quality with a judge model, and produces a full dashboard.</p></div>
+
+          <details class="demo-guide" open>
+            <summary>How to run the evaluation (first time, ~15 min)</summary>
+            <ol>
+              <li><b>Install toolkit</b> — click below. One-time <code>git clone</code> + <code>pip install</code>. Needs Python 3.9+ and Git.</li>
+              <li><b>Add an API key</b> — the toolkit needs <code>AZURE_OPENAI_API_KEY</code> in the app's <code>.env</code> (Entra ID is not supported yet). The chip below tells you if the key is present.</li>
+              <li><b>Deploy baseline & judge</b> — expand "Deploy a recommended model" below. Deploy <code>gpt-5.6-luna</code> if you want a strong judge; <code>gpt-5.2</code> is already there for baseline.</li>
+              <li><b>Pick dataset</b> — Built-in scenarios for a controlled 15/30-prompt benchmark, or your own conversations for real-workload data.</li>
+              <li><b>Pick router / baseline / judge</b> from the dropdowns.</li>
+              <li><b>Dry run first</b> — validates the dataset, no API cost. Click "Dry run (validate)".</li>
+              <li><b>Live evaluation</b> — click "Run live evaluation". Watch the console below. Chat is locked while it runs.</li>
+              <li><b>Open dashboard</b> — button below the console opens the toolkit's HTML report in your default browser.</li>
+              <li><b>Repeat per mode</b> — change router to <code>mr-cost</code>, then <code>mr-quality</code>, run again. Compare 3 dashboards.</li>
+            </ol>
+          </details>
+
+          <div class="eval-status" id="evalStatus"></div>
+
+          <h3 style="margin-top:0">1. Install toolkit</h3>
+          <p class="eval-hint">One-time: clones the repo into <code>eval-toolkit/</code>, creates a Python venv, installs dependencies. Requires Python 3.9+ and Git.</p>
+          <button type="button" class="eval-action" id="evalInstallButton">Install / update toolkit</button>
+
+          <h3>2. Choose dataset</h3>
+          <div class="eval-source">
+            <label class="radio-item"><input type="radio" name="evalSource" value="scenarios30" checked> Built-in — all 30 scenarios <small>(~10 min)</small></label>
+            <label class="radio-item"><input type="radio" name="evalSource" value="scenarios15"> Built-in — curated 15 scenarios <small>(~5 min)</small></label>
+            <div id="evalToolkitDatasets"></div>
+          </div>
+          <small class="eval-count" id="evalCount"></small>
+
+          <h3>3. Configure & run</h3>
+          <p class="eval-hint">Router = which router deployment to evaluate. Baseline = the fixed model you'd otherwise use. Judge = the model that scores answers.</p>
+          <label class="eval-input"><span>Router deployment (what to evaluate)</span><select id="evalRouter"><option value="">— use MODEL_ROUTER_DEPLOYMENT_BALANCED from .env —</option></select></label>
+          <label class="eval-input"><span>Baseline deployment (a non-router model)</span><select id="evalBaseline"><option value="">— pick a baseline model —</option></select></label>
+          <label class="eval-input"><span>Judge deployment (scores the answers)</span><select id="evalJudge"><option value="">— pick a judge model —</option></select></label>
+          <button type="button" class="eval-action secondary" id="evalRefreshDeploymentsButton" style="margin-bottom:8px">Refresh deployments from Azure</button>
+          <details class="eval-deploy-details">
+            <summary>Deploy a recommended model (I have az login)</summary>
+            <div class="eval-recommend" id="evalRecommend"><p class="eval-hint">Loading recommendations…</p></div>
+          </details>
+          <label class="eval-input"><span>Config</span>
+            <select id="evalConfig">
+              <option value="configs/default.yaml">default.yaml (reads endpoints from .env — use this for live runs)</option>
+              <option value="configs/quick_test.yaml">quick_test.yaml (dry-run validation only, placeholder endpoints)</option>
+            </select>
+          </label>
+          <div class="eval-actions">
+            <button type="button" class="eval-action secondary" id="evalDryRunButton">Dry run (validate)</button>
+            <button type="button" class="eval-action" id="evalRunButton">Run live evaluation</button>
+            <button type="button" class="eval-action danger" id="evalStopButton" hidden>Stop</button>
+          </div>
+
+          <h3>4. Output</h3>
+          <div class="eval-console" id="evalConsole"><p class="empty-analytics">Console will show live output once you install or run.</p></div>
+          <button type="button" class="eval-action" id="evalOpenReportButton" style="margin-top:8px">Open latest dashboard.html</button>
+          <h3>5. Past evaluations</h3>
+          <div class="eval-history" id="evalHistory"><p class="empty-analytics">No evaluations run yet.</p></div>
+        </section>
       </aside>
       <button class="mobile-inspector" id="inspectorButton" type="button">Scenarios & analytics</button>
       <div class="scrim" id="scrim"></div>
     </div>
     <div class="toast" id="toast" role="status"></div>
+    <div class="compare-modal" id="compareModal" hidden>
+      <div class="compare-modal-shell">
+        <header class="compare-modal-header">
+          <div><p class="eyebrow">SIDE BY SIDE</p><h2>Compare conversations</h2></div>
+          <button type="button" class="compare-close" id="compareClose" aria-label="Close">×</button>
+        </header>
+        <div class="compare-modal-body" id="compareModalBody"></div>
+      </div>
+    </div>
     <script type="module" src="/app.js"></script>
   </body>
 </html>
