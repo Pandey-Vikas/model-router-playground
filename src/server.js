@@ -67,7 +67,7 @@ export function createApp({ database = createDatabase(), providerName = process.
         const content = typeof body.content === 'string' ? body.content.trim() : '';
         const complexityLevel = Number(body.complexityLevel);
         if (!content || content.length > 12_000) return sendJson(response, 400, { error: 'Message must contain 1 to 12,000 characters' });
-        if (!Number.isInteger(complexityLevel) || complexityLevel < 1 || complexityLevel > 15) return sendJson(response, 400, { error: 'Complexity level must be from 1 to 15' });
+        if (!Number.isInteger(complexityLevel) || complexityLevel < 1 || complexityLevel > 30) return sendJson(response, 400, { error: 'Complexity level must be from 1 to 30' });
 
         database.addMessage(conversationId, { role: 'user', content, complexityLevel });
         const current = database.getConversation(conversationId);

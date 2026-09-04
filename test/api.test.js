@@ -44,7 +44,7 @@ test('rejects invalid complexity levels', async () => {
     }).then((response) => response.json());
     const response = await fetch(`${app.baseUrl}/api/conversations/${conversation.id}/messages`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ content: 'Hello', complexityLevel: 16 })
+      body: JSON.stringify({ content: 'Hello', complexityLevel: 31 })
     });
     assert.equal(response.status, 400);
   } finally {

@@ -29,7 +29,7 @@
         <section class="messages" id="messages" aria-live="polite">
           <div class="empty-state" id="emptyState">
             <div class="route-visual" aria-hidden="true"><i></i><b>MR</b><i></i></div>
-            <p class="eyebrow">FIFTEEN LEVELS. ONE ROUTER.</p>
+            <p class="eyebrow">THIRTY LEVELS. ONE ROUTER.</p>
             <h2>See model selection<br>change with the work.</h2>
             <p>Choose a scenario or write your own prompt. Every response records the selected model, token use, and latency.</p>
             <button type="button" id="startScenarioButton">Start with a scenario <span aria-hidden="true">→</span></button>
@@ -38,7 +38,7 @@
         <footer class="composer-wrap">
           <div class="complexity-control">
             <label for="complexity"><span>Prompt complexity</span><strong id="complexityValue">5 / 10</strong></label>
-            <input id="complexity" type="range" min="1" max="15" value="5" aria-describedby="complexityLabels">
+            <input id="complexity" type="range" min="1" max="30" value="5" aria-describedby="complexityLabels">
             <div class="range-labels" id="complexityLabels"><span>Direct</span><span>Multi-step</span><span>Expert synthesis</span></div>
           </div>
           <form class="composer" id="messageForm">
@@ -59,9 +59,9 @@
         <section id="scenariosTab" class="tab-content">
           <div class="panel-intro"><p class="eyebrow">COMPLEXITY LADDER</p><h2>Test the routing range</h2><p>Run prompts from direct recall to expert synthesis.</p></div>
           <div class="ladder-runner">
-            <button class="ladder-button" id="runLadderButton" type="button"><span class="ladder-icon" aria-hidden="true">▶</span><span class="ladder-label">Run all 15 scenarios</span></button>
+            <button class="ladder-button" id="runLadderButton" type="button"><span class="ladder-icon" aria-hidden="true">▶</span><span class="ladder-label">Run all 30 scenarios</span></button>
             <p class="ladder-hint" id="ladderHint">Auto-runs each level in a fresh conversation and fills analytics live.</p>
-            <div class="ladder-progress" id="ladderProgress" hidden><div class="ladder-bar"><span id="ladderBarFill"></span></div><small id="ladderProgressText">0 / 15</small></div>
+            <div class="ladder-progress" id="ladderProgress" hidden><div class="ladder-bar"><span id="ladderBarFill"></span></div><small id="ladderProgressText">0 / 30</small></div>
           </div>
           <div class="scenario-list" id="scenarioList"></div>
         </section>
