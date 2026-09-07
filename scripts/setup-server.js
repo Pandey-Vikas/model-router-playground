@@ -37,7 +37,12 @@ function startBrowserLogin(tenantId) {
   const args = ['login', '--only-show-errors'];
   if (tenantId) args.push('--tenant', tenantId);
   return new Promise((resolve, reject) => {
-    const child = spawn(azCommand, args, { shell: useShell, windowsHide: true });
+    // Disable WAM so az prints the auth URL instead of opening a Windows-native dialog that lands behind other windows.
+    const child = spawn(azCommand, args, {
+      shell: useShell,
+      windowsHide: true,
+      env: { ...process.env, AZURE_LOGIN_EXPERIENCE_V2: 'off' }
+    });
     activeLoginChild = child;
     let buffer = '';
     let urlReturned = false;
@@ -226,11 +231,69 @@ const server = createServer(async (request, response) => {
             kind: a.kind,
             endpoint,
             resourceGroup: a.id.split('/')[4],
+            subscriptionId: a.id.split('/')[2],
             location: a.location,
             disableLocalAuth: !!a.properties?.disableLocalAuth
           };
         });
       return sendJson(response, 200, filtered);
+    }
+
+    if (url.pathname === '/api/resource-groups' && request.method === 'GET') {
+      try {
+        const groups = await az(['group', 'list']);
+        return sendJson(response, 200, (groups || []).map(g => ({ name: g.name, location: g.location })));
+      } catch (error) {
+        return sendJson(response, 500, { error: error.stderr || error.message });
+      }
+    }
+
+    if (url.pathname === '/api/foundry-locations' && request.method === 'GET') {
+      // Common regions where Azure OpenAI / Foundry Models are widely available.
+      return sendJson(response, 200, [
+        { name: 'swedencentral', label: 'Sweden Central (recommended · full model coverage)' },
+        { name: 'eastus2', label: 'East US 2 (Claude available)' },
+        { name: 'switzerlandnorth', label: 'Switzerland North' },
+        { name: 'eastus', label: 'East US' },
+        { name: 'westus3', label: 'West US 3' },
+        { name: 'northcentralus', label: 'North Central US' },
+        { name: 'southcentralus', label: 'South Central US' },
+        { name: 'francecentral', label: 'France Central' },
+        { name: 'westeurope', label: 'West Europe' },
+        { name: 'uksouth', label: 'UK South' },
+        { name: 'japaneast', label: 'Japan East' },
+        { name: 'australiaeast', label: 'Australia East' },
+        { name: 'southindia', label: 'South India (limited model coverage)' }
+      ]);
+    }
+
+    if (url.pathname === '/api/create-foundry' && request.method === 'POST') {
+      const body = await readJson(request);
+      const { name, resourceGroup, location, createGroup } = body;
+      if (!name || !resourceGroup || !location) return sendJson(response, 400, { error: 'name, resourceGroup, location are required.' });
+      try {
+        if (createGroup) {
+          await execFileAsync(azCommand, ['group', 'create', '--name', resourceGroup, '--location', location, '--only-show-errors', '--output', 'json'], { shell: useShell, maxBuffer: 8 * 1024 * 1024, timeout: 60_000 });
+        }
+        // Create AIServices kind so the router + all Foundry Models (OpenAI, Claude, Grok, DeepSeek, Meta) can be deployed.
+        const created = await execFileAsync(azCommand, [
+          'cognitiveservices', 'account', 'create',
+          '--name', name,
+          '--resource-group', resourceGroup,
+          '--location', location,
+          '--kind', 'AIServices',
+          '--sku', 'S0',
+          '--custom-domain', name,
+          '--yes',
+          '--only-show-errors',
+          '--output', 'json'
+        ], { shell: useShell, maxBuffer: 32 * 1024 * 1024, timeout: 300_000 });
+        let parsed = null;
+        try { parsed = JSON.parse(created.stdout); } catch { /* ignore */ }
+        return sendJson(response, 200, { ok: true, account: parsed ? { name: parsed.name, endpoint: parsed.properties?.endpoint || `https://${name}.openai.azure.com/`, location: parsed.location, resourceGroup } : { name, resourceGroup, location } });
+      } catch (error) {
+        return sendJson(response, 500, { error: (error.stderr || error.message).slice(0, 400) });
+      }
     }
 
     if (url.pathname === '/api/deployments' && request.method === 'GET') {
@@ -244,6 +307,58 @@ const server = createServer(async (request, response) => {
         sku: d.sku?.name
       }));
       return sendJson(response, 200, mapped);
+    }
+
+    if (url.pathname === '/api/deploy-batch' && request.method === 'POST') {
+      const body = await readJson(request);
+      const items = Array.isArray(body.items) ? body.items : [];
+      const subscriptionId = body.subscriptionId;
+      const resourceGroup = body.resourceGroup;
+      const account = body.accountName;
+      if (!items.length) return sendJson(response, 400, { error: 'No items to deploy.' });
+      if (!subscriptionId || !resourceGroup || !account) return sendJson(response, 400, { error: 'subscriptionId, resourceGroup, accountName are required.' });
+      const results = [];
+      for (const item of items) {
+        const key = item.key || item.deploymentName;
+        try {
+          if (item.kind === 'router') {
+            const { stdout: tokenJson } = await execFileAsync(azCommand, ['account', 'get-access-token', '--resource', 'https://management.azure.com', '--only-show-errors', '--output', 'json'], { shell: useShell, maxBuffer: 8 * 1024 * 1024 });
+            const token = JSON.parse(tokenJson).accessToken;
+            const putUrl = `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${account}/deployments/${item.deploymentName}?api-version=2025-10-01-preview`;
+            const putBody = {
+              sku: { name: 'GlobalStandard', capacity: Number(item.capacity) || 20 },
+              properties: {
+                model: { format: 'OpenAI', name: 'model-router', version: item.version || '2025-11-18' },
+                routing: { mode: item.mode || 'balanced' }
+              }
+            };
+            const res = await fetch(putUrl, { method: 'PUT', headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(putBody) });
+            const text = await res.text();
+            if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+            results.push({ key, ok: true });
+          } else if (item.kind === 'model') {
+            await execFileAsync(azCommand, [
+              'cognitiveservices', 'account', 'deployment', 'create',
+              '--name', account,
+              '--resource-group', resourceGroup,
+              '--deployment-name', item.deploymentName,
+              '--model-name', item.modelName,
+              '--model-version', item.modelVersion,
+              '--model-format', 'OpenAI',
+              '--sku-name', item.sku || 'GlobalStandard',
+              '--sku-capacity', String(item.capacity || 1),
+              '--only-show-errors',
+              '--output', 'json'
+            ], { shell: useShell, maxBuffer: 32 * 1024 * 1024, timeout: 180_000 });
+            results.push({ key, ok: true });
+          } else {
+            throw new Error(`Unknown kind "${item.kind}"`);
+          }
+        } catch (error) {
+          results.push({ key, ok: false, error: error.stderr || error.message });
+        }
+      }
+      return sendJson(response, 200, { results });
     }
 
     if (url.pathname === '/api/keys' && request.method === 'GET') {

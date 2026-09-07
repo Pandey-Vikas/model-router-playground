@@ -1,16 +1,35 @@
 import { createServer as createHttpServer } from 'node:http';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDatabase } from './db.js';
 import { scenarios } from './scenarios.js';
 import { mockChat } from './providers/mock.js';
-import { foundryChat } from './providers/foundry.js';
+import { foundryChat, getEntraToken } from './providers/foundry.js';
 import { getRecentLogs, subscribeLogs } from './logs.js';
-import { getStatus as getEvalStatus, installToolkit, configureToolkitEnv, saveDataset, runEvaluation, findLatestReport, openReport, subscribeEval, listAccountDeployments, deployModel, RECOMMENDED_MODELS, listToolkitDatasets, stopEvaluation, TOOLKIT_DIR } from './eval.js';
+import { PRICING, BASELINE_MODEL } from '../public/pricing.js';
+import { getStatus as getEvalStatus, installToolkit, configureToolkitEnv, saveDataset, runEvaluation, runThreeModeEvaluation, findLatestReport, openReport, subscribeEval, listAccountDeployments, deployModel, deployRouter, deployBatch, RECOMMENDED_MODELS, listToolkitDatasets, listUserDatasets, resolveDatasetForDownload, stopEvaluation, materializeExistingEvalRun, emitError, TOOLKIT_DIR } from './eval.js';
+import { runBenchmark, subscribeBenchmark, isBenchmarkBusy, stopBenchmark } from './benchmark.js';
 
 const publicDirectory = fileURLToPath(new URL('../public/', import.meta.url));
+const setupScriptPath = fileURLToPath(new URL('../scripts/setup-server.js', import.meta.url));
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
+
+let setupChild = null;
+const SETUP_PORT = 3100;
+
+function launchSetupWizard() {
+  if (!existsSync(setupScriptPath)) throw new Error('Setup wizard script not found at ' + setupScriptPath);
+  if (setupChild && !setupChild.killed) return { port: SETUP_PORT, alreadyRunning: true };
+  setupChild = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', setupScriptPath], {
+    stdio: 'ignore',
+    detached: false,
+    env: { ...process.env, SETUP_PORT: String(SETUP_PORT) }
+  });
+  setupChild.on('exit', () => { setupChild = null; });
+  return { port: SETUP_PORT, alreadyRunning: false };
+}
 
 async function readJson(request) {
   let body = '';
@@ -53,6 +72,43 @@ export function createApp({ database = createDatabase(), providerName = process.
         };
         return sendJson(response, 200, { provider: providerName, deployments });
       }
+      if (url.pathname === '/api/setup/launch' && request.method === 'POST') {
+        try {
+          const info = launchSetupWizard();
+          return sendJson(response, 200, info);
+        } catch (error) {
+          return sendJson(response, 500, { error: error.message });
+        }
+      }
+      if (url.pathname === '/api/health/foundry' && request.method === 'GET') {
+        const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/$/, '');
+        if (!endpoint) return sendJson(response, 200, { ok: false, endpoint: null, error: 'AZURE_OPENAI_ENDPOINT not set' });
+        const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-21';
+        const probeUrl = `${endpoint}/openai/models?api-version=${encodeURIComponent(apiVersion)}`;
+        const headers = {};
+        let authMode = 'anonymous';
+        const apiKey = process.env.AZURE_OPENAI_API_KEY;
+        if (apiKey) { headers['api-key'] = apiKey; authMode = 'api-key'; }
+        else {
+          try {
+            const token = await getEntraToken();
+            headers['authorization'] = `Bearer ${token}`;
+            authMode = 'entra-id';
+          } catch (error) {
+            return sendJson(response, 200, { ok: false, endpoint, authMode: 'entra-id', error: `Entra token failed: ${error.message.slice(0, 100)}` });
+          }
+        }
+        try {
+          const res = await fetch(probeUrl, { method: 'GET', headers, signal: AbortSignal.timeout(5000) });
+          if (res.ok) return sendJson(response, 200, { ok: true, endpoint, status: res.status, authMode, note: 'authenticated request succeeded' });
+          if (res.status === 401 || res.status === 403) return sendJson(response, 200, { ok: false, endpoint, status: res.status, authMode, error: `HTTP ${res.status} — endpoint reachable but auth denied. Check that this identity has "Cognitive Services OpenAI User" role on the resource.` });
+          if (res.status === 404) return sendJson(response, 200, { ok: false, endpoint, status: res.status, authMode, error: 'HTTP 404 — endpoint URL is wrong or resource was deleted.' });
+          return sendJson(response, 200, { ok: true, endpoint, status: res.status, authMode, note: `unexpected HTTP ${res.status} but endpoint reachable` });
+        } catch (error) {
+          const msg = error.name === 'TimeoutError' ? 'Timed out after 5s' : error.message;
+          return sendJson(response, 200, { ok: false, endpoint, authMode, error: msg });
+        }
+      }
       if (url.pathname === '/api/scenarios' && request.method === 'GET') return sendJson(response, 200, scenarios);
       if (url.pathname === '/api/conversations' && request.method === 'GET') return sendJson(response, 200, database.listConversations());
       if (url.pathname === '/api/conversations' && request.method === 'POST') {
@@ -60,6 +116,10 @@ export function createApp({ database = createDatabase(), providerName = process.
         return sendJson(response, 201, database.createConversation(typeof body.title === 'string' ? body.title : undefined));
       }
       if (url.pathname === '/api/analytics' && request.method === 'GET') return sendJson(response, 200, database.getAnalytics(url.searchParams.get('conversationId') || undefined));
+      if (url.pathname === '/api/pricing' && request.method === 'GET') {
+        const catalog = Object.entries(PRICING).map(([model, p]) => ({ model, tier: p.tier, input: p.input, output: p.output, source: p.source }));
+        return sendJson(response, 200, { catalog, baselineModel: BASELINE_MODEL, source: 'public/pricing.js', currency: 'USD', unit: 'per 1,000,000 tokens' });
+      }
       if (url.pathname === '/api/data' && request.method === 'DELETE') { database.clearAll(); return sendJson(response, 200, { ok: true }); }
 
       const scoreMatch = url.pathname.match(/^\/api\/conversations\/([0-9a-f-]+)\/score$/);
@@ -82,7 +142,9 @@ export function createApp({ database = createDatabase(), providerName = process.
               messages: [{ role: 'user', content: judgePrompt }],
               complexityLevel: 1,
               routingMode: 'balanced',
-              deploymentOverride: judgeDeployment
+              deploymentOverride: judgeDeployment,
+              source: 'judge',
+              context: { conversationId, judgeDeployment, messageId: assistant.id }
             });
             const parsed = parseJudgeJson(judgment.content);
             database.saveQualityScore(assistant.id, { ...parsed, judge: judgeDeployment });
@@ -95,7 +157,20 @@ export function createApp({ database = createDatabase(), providerName = process.
       }
 
       if (url.pathname === '/api/eval/status' && request.method === 'GET') return sendJson(response, 200, getEvalStatus());
-      if (url.pathname === '/api/eval/toolkit-datasets' && request.method === 'GET') return sendJson(response, 200, { datasets: listToolkitDatasets() });
+      if (url.pathname === '/api/eval/toolkit-datasets' && request.method === 'GET') return sendJson(response, 200, { datasets: listToolkitDatasets(), userDatasets: listUserDatasets() });
+      if (url.pathname === '/api/eval/dataset/download' && request.method === 'GET') {
+        try {
+          const path = resolveDatasetForDownload(url.searchParams.get('name'));
+          const body = readFileSync(path);
+          response.writeHead(200, {
+            'content-type': path.endsWith('.md') ? 'text/markdown; charset=utf-8' : 'application/x-ndjson; charset=utf-8',
+            'content-disposition': `attachment; filename="${path.split(/[\\/]/).pop()}"`
+          });
+          return response.end(body);
+        } catch (error) {
+          return sendJson(response, 404, { error: error.message });
+        }
+      }
       if (url.pathname === '/api/eval/stream' && request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         const unsubscribe = subscribeEval((entry) => response.write(`data: ${JSON.stringify(entry)}\n\n`));
@@ -103,7 +178,7 @@ export function createApp({ database = createDatabase(), providerName = process.
         return;
       }
       if (url.pathname === '/api/eval/install' && request.method === 'POST') {
-        installToolkit().catch(() => {});
+        installToolkit().catch((error) => emitError('Install failed', error));
         return sendJson(response, 202, { started: true });
       }
       if (url.pathname === '/api/eval/configure' && request.method === 'POST') {
@@ -140,11 +215,76 @@ export function createApp({ database = createDatabase(), providerName = process.
           routerDeployment: body.routerDeployment,
           baselineDeployment: body.baselineDeployment,
           judgeDeployment: body.judgeDeployment
-        }).catch(() => {});
+        }).catch((error) => emitError('Evaluation failed', error));
         return sendJson(response, 202, { started: true });
       }
       if (url.pathname === '/api/eval/history' && request.method === 'GET') {
         return sendJson(response, 200, { runs: database.listEvalRuns() });
+      }
+      if (url.pathname === '/api/eval/run-3-modes' && request.method === 'POST') {
+        const body = await readJson(request);
+        if (!body.datasetPath) return sendJson(response, 400, { error: 'datasetPath is required' });
+        const modes = [
+          ['balanced', body.balancedDeployment],
+          ['cost', body.costDeployment],
+          ['quality', body.qualityDeployment]
+        ].filter(([, v]) => v);
+        if (modes.length < 2) return sendJson(response, 400, { error: 'At least two mode deployments are required.' });
+        runThreeModeEvaluation({
+          datasetPath: body.datasetPath,
+          config: body.config,
+          db: database,
+          modes,
+          baselineDeployment: body.baselineDeployment,
+          judgeDeployment: body.judgeDeployment
+        }).catch((error) => emitError('3-mode comparison failed', error));
+        return sendJson(response, 202, { started: true });
+      }
+      if (url.pathname === '/api/eval/compare-batch' && request.method === 'GET') {
+        const batchId = url.searchParams.get('batchId');
+        if (!batchId) return sendJson(response, 400, { error: 'batchId is required' });
+        return sendJson(response, 200, { runs: database.listEvalBatch(batchId) });
+      }
+      if (url.pathname === '/api/eval/materialize' && request.method === 'POST') {
+        const body = await readJson(request);
+        const runRow = database.listEvalRuns(500).find((r) => r.id === body.runId);
+        if (!runRow) return sendJson(response, 404, { error: 'Eval run not found' });
+        try {
+          materializeExistingEvalRun({ db: database, runRow });
+          return sendJson(response, 200, { ok: true });
+        } catch (error) {
+          return sendJson(response, 400, { error: error.message });
+        }
+      }
+      if (url.pathname === '/api/benchmark/status' && request.method === 'GET') {
+        return sendJson(response, 200, { busy: isBenchmarkBusy() });
+      }
+      if (url.pathname === '/api/benchmark/history' && request.method === 'GET') {
+        return sendJson(response, 200, { runs: database.listBenchmarkRuns() });
+      }
+      if (url.pathname === '/api/benchmark/stream' && request.method === 'GET') {
+        response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+        const unsubscribe = subscribeBenchmark((entry) => response.write(`data: ${JSON.stringify(entry)}\n\n`));
+        request.on('close', unsubscribe);
+        return;
+      }
+      if (url.pathname === '/api/benchmark/stop' && request.method === 'POST') {
+        return sendJson(response, 200, stopBenchmark());
+      }
+      if (url.pathname === '/api/benchmark/run' && request.method === 'POST') {
+        const body = await readJson(request);
+        if (!body.datasetPath) return sendJson(response, 400, { error: 'datasetPath is required' });
+        const endpoints = (body.endpoints || []).filter((e) => e && e.deployment);
+        if (endpoints.length < 2) return sendJson(response, 400, { error: 'Pick at least two endpoints.' });
+        runBenchmark({
+          datasetPath: body.datasetPath,
+          endpoints,
+          db: database,
+          concurrency: Number(body.concurrency) || 2,
+          requestDelayMs: Number.isFinite(Number(body.requestDelayMs)) ? Number(body.requestDelayMs) : 500
+        })
+          .catch((error) => emitError('Benchmark failed', error));
+        return sendJson(response, 202, { started: true });
       }
       if (url.pathname === '/api/eval/stop' && request.method === 'POST') {
         return sendJson(response, 200, stopEvaluation());
@@ -171,7 +311,17 @@ export function createApp({ database = createDatabase(), providerName = process.
       }
       if (url.pathname === '/api/eval/deploy' && request.method === 'POST') {
         const body = await readJson(request);
-        deployModel(body).catch(() => {});
+        deployModel(body).catch((error) => emitError('Model deployment failed', error));
+        return sendJson(response, 202, { started: true });
+      }
+      if (url.pathname === '/api/eval/deploy-router' && request.method === 'POST') {
+        const body = await readJson(request);
+        deployRouter(body).catch((error) => emitError('Router deployment failed', error));
+        return sendJson(response, 202, { started: true });
+      }
+      if (url.pathname === '/api/eval/deploy-batch' && request.method === 'POST') {
+        const body = await readJson(request);
+        deployBatch(body).catch((error) => emitError('Batch deployment failed', error));
         return sendJson(response, 202, { started: true });
       }
 

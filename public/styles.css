@@ -41,6 +41,25 @@ button { color: inherit; cursor: pointer; }
 .history-delete:hover { color: var(--coral); background: var(--coral-soft); }
 .provider-status { display: flex; align-items: center; gap: 9px; padding: 13px 8px 0; border-top: 1px solid var(--line); }
 .provider-status strong { font-size: 11px; }
+.setup-launch-button { margin: 8px 0 0; padding: 8px 10px; background: white; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; width: 100%; text-align: left; }
+.setup-launch-button:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.foundry-down-banner { padding: 10px 14px; margin: 12px; background: rgba(217, 83, 79, 0.1); border: 1px solid rgba(217, 83, 79, 0.4); border-left: 4px solid #d9534f; border-radius: 4px; font-size: 12px; color: var(--ink); line-height: 1.5; }
+.foundry-down-banner strong { color: #d9534f; }
+
+.router-deploy-panel { padding: 10px; background: rgba(124, 58, 237, 0.05); border: 1px solid rgba(124, 58, 237, 0.25); border-radius: 3px; margin-top: 6px; }
+.router-deploy-panel .eval-hint { font-size: 11px; margin: 0 0 8px 0; color: var(--muted); }
+.router-deploy-panel .eval-input span { color: #7c3aed; font-weight: 700; }
+.batch-deploy-list { display: flex; flex-direction: column; gap: 6px; }
+.batch-row { display: grid; grid-template-columns: 1.4fr 1.6fr 1fr auto; gap: 6px; padding: 8px 10px; background: white; border: 1px solid var(--line); border-radius: 3px; align-items: center; font-size: 11px; }
+.batch-row .batch-toggle { display: flex; align-items: center; gap: 6px; font-weight: 700; color: var(--ink); }
+.batch-row input[type="text"], .batch-row select { padding: 5px 8px; font: 500 11px "Cascadia Mono", Consolas, monospace; border: 1px solid var(--line); border-radius: 3px; background: white; }
+.batch-status { font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 3px; text-align: center; min-width: 70px; }
+.batch-status[data-status="idle"] { background: var(--paper); color: var(--muted); }
+.batch-status[data-status="queued"] { background: rgba(224, 165, 74, 0.15); color: #b8862d; }
+.batch-status[data-status="creating"] { background: rgba(8, 145, 178, 0.15); color: #0891b2; animation: pulse 1.5s ease-in-out infinite; }
+.batch-status[data-status="success"] { background: rgba(46, 125, 50, 0.15); color: var(--green); }
+.batch-status[data-status="failed"] { background: rgba(217, 83, 79, 0.15); color: #d9534f; }
+@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.5 } }
 .status-dot { width: 8px; height: 8px; border: 2px solid var(--surface); border-radius: 50%; background: #38a06d; box-shadow: 0 0 0 1px #38a06d; }
 .chat-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--surface); overflow: hidden; }
 .chat-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 13px 25px; border-bottom: 1px solid var(--line); flex-shrink: 0; gap: 16px; }
@@ -287,6 +306,12 @@ button.meta-chip.cost:hover { background: #f9d0c1; }
 .log-entry .log-head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
 .log-entry .log-body { color: var(--ink); line-height: 1.5; word-break: break-all; }
 .log-entry .log-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; color: var(--muted); font-size: 10px; }
+.log-source { display: inline-block; padding: 1px 5px; border-radius: 2px; font: 700 9px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: white; margin-right: 4px; }
+.log-source.src-chat { background: var(--muted); }
+.log-source.src-benchmark { background: #0891b2; }
+.log-source.src-judge { background: var(--purple, #7c3aed); }
+.log-source.src-ladder { background: var(--green); }
+.log-ctx { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
 
 .eval-source { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .eval-source .radio-item, .eval-source #evalToolkitDatasets .radio-item { display: flex; align-items: center; gap: 8px; padding: 10px; background: white; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
@@ -349,8 +374,36 @@ button.meta-chip.cost:hover { background: #f9d0c1; }
 .eval-history-item .info small { display: block; color: var(--muted); font-size: 10px; margin-top: 2px; font-family: "Cascadia Mono", Consolas, monospace; }
 .eval-history-summary { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .eval-history-summary .chip { font-size: 10px; padding: 2px 6px; }
+
+.eval-byo { margin-top: 10px; padding: 10px; border: 1px dashed var(--line); border-radius: 3px; background: rgba(0, 120, 212, 0.03); }
+.eval-byo summary { cursor: pointer; font: 700 11px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); }
+.eval-byo[open] summary { margin-bottom: 8px; }
+.eval-byo .eval-input textarea { font: 11px "Cascadia Mono", Consolas, monospace; resize: vertical; }
+.eval-byo-samples { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.eval-byo-samples a { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: white; border: 1px solid var(--line); border-radius: 3px; text-decoration: none; color: var(--accent); font: 10px "Cascadia Mono", Consolas, monospace; }
+.eval-byo-samples a:hover { border-color: var(--accent); }
+.eval-byo-samples a::before { content: "⬇"; font-size: 11px; }
+
+.eval-batch { padding: 10px 12px; background: white; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 6px; }
+.eval-batch.success { border-left: 3px solid var(--green); }
+.eval-batch.failed { border-left: 3px solid #d9534f; }
+.eval-batch.running { border-left: 3px solid var(--accent); }
+.eval-batch-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+.eval-batch-header small { color: var(--muted); font-size: 10px; font-family: "Cascadia Mono", Consolas, monospace; }
+.eval-batch-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.eval-batch-table th { text-align: left; padding: 4px 6px; background: var(--bg); font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--line); }
+.eval-batch-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.eval-batch-table tr:last-child td { border-bottom: 0; }
+.eval-batch-table code { font-size: 10px; color: var(--muted); }
+.eval-batch-table button { padding: 4px 8px; border: 1px solid var(--green); background: var(--green); color: white; border-radius: 3px; font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; cursor: pointer; }
+.chip.success { background: var(--green); color: white; }
+.chip.failed { background: #d9534f; color: white; }
+.chip.running { background: var(--accent); color: white; }
 .eval-history-item button { padding: 5px 10px; border: 1px solid var(--green); background: var(--green); color: white; border-radius: 3px; font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; white-space: nowrap; }
 .eval-history-item button:disabled { opacity: 0.5; cursor: not-allowed; background: var(--muted); border-color: var(--muted); }
+.eval-history-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.eval-history-item button[data-materialize-id] { background: white; color: var(--accent); border-color: var(--accent); }
+.eval-history-item button[data-materialize-id]:hover { background: var(--accent); color: white; }
 
 .eval-deploy-details { background: white; border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; margin-bottom: 12px; }
 .eval-deploy-details summary { cursor: pointer; font-weight: 600; font-size: 12px; }
@@ -407,6 +460,122 @@ button.meta-chip.cost:hover { background: #f9d0c1; }
 .compare-view-toggle button { padding: 6px 12px; border: 0; background: white; color: var(--muted); font: 600 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; }
 .compare-view-toggle button.active { background: var(--ink); color: white; }
 .compare-view-toggle button:not(.active):hover { color: var(--ink); }
+
+.compare-dashboard { display: flex; flex-direction: column; gap: 16px; }
+.compare-dash-explainer { background: white; border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; }
+.compare-dash-explainer summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--ink); }
+.compare-dash-explainer[open] summary { margin-bottom: 8px; }
+.compare-dash-explainer p, .compare-dash-explainer li { font-size: 12px; color: var(--muted); line-height: 1.55; margin: 4px 0; }
+.compare-dash-explainer ul { margin: 4px 0 4px 20px; padding: 0; }
+.compare-dash-explainer code { background: var(--paper); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+.compare-dash-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.compare-dash-card { background: white; border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px; }
+.compare-dash-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+.dash-title { font-weight: 700; font-size: 13px; color: var(--ink); }
+.dash-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.dash-badge.win { background: var(--green); color: white; padding: 2px 8px; border-radius: 3px; font: 700 9px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; }
+.dash-badge.fail { background: #d9534f; color: white; padding: 2px 8px; border-radius: 3px; font: 700 9px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; }
+.failed-inline { color: #d9534f; font-size: 11px; font-weight: 600; }
+.cell-failed { color: #d9534f; font-size: 11px; padding: 4px 6px; background: rgba(217, 83, 79, 0.08); border-left: 3px solid #d9534f; border-radius: 2px; }
+.cell-failed strong { color: #d9534f; }
+.compare-table td.failed-only { background: rgba(217, 83, 79, 0.04); }
+.compare-dash-kpi-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.compare-dash-kpi { display: flex; flex-direction: column; padding: 6px 8px; background: var(--paper); border-radius: 3px; }
+.compare-dash-kpi .lbl { font: 700 9px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.compare-dash-kpi .val { font-size: 15px; font-weight: 700; color: var(--ink); margin-top: 2px; }
+.compare-dash-kpi .val.pos { color: var(--green); }
+.compare-dash-kpi .val.neg { color: #d9534f; }
+.compare-dash-kpi .sub { font-size: 10px; color: var(--muted); margin-top: 1px; font-family: "Cascadia Mono", Consolas, monospace; }
+.compare-dash-kpi .info-dot { display: inline-block; width: 12px; height: 12px; line-height: 12px; font-size: 9px; text-align: center; border-radius: 50%; background: rgba(8, 145, 178, 0.15); color: #0891b2; margin-left: 4px; cursor: help; }
+.compare-dash-kpi.has-detail { cursor: pointer; transition: background 0.15s; }
+.compare-dash-kpi.has-detail:hover { background: rgba(8, 145, 178, 0.1); }
+.compare-dash-kpi.has-detail:hover .info-dot { background: #0891b2; color: white; }
+
+.cost-breakdown-detail { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.cost-breakdown-detail summary { cursor: pointer; font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); }
+.cost-breakdown-detail[open] summary { margin-bottom: 8px; }
+.cost-breakdown-body { background: var(--paper); padding: 8px 10px; border-radius: 3px; }
+.cost-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.cost-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; padding: 8px 10px; background: white; border-radius: 3px; border: 1px solid var(--line); font-size: 11px; }
+.cost-row-model { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cost-row-model strong { font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; color: var(--ink); }
+.cost-row-model .tier { font-size: 8px; padding: 1px 5px; }
+.cost-row-meta { display: flex; gap: 10px; font-size: 10px; color: var(--muted); font-family: "Cascadia Mono", Consolas, monospace; align-items: center; }
+.cost-meta-calls { color: var(--ink); font-weight: 600; }
+.cost-meta-tokens { display: inline-flex; gap: 6px; align-items: center; }
+.cost-meta-tokens .tok-in { color: #0891b2; }
+.cost-meta-tokens .tok-out { color: #7c3aed; }
+.cost-row-total { font: 700 12px "Cascadia Mono", Consolas, monospace; color: var(--ink); text-align: right; white-space: nowrap; align-self: end; }
+.cost-summary { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
+.cost-summary-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 11px; font-family: "Cascadia Mono", Consolas, monospace; }
+.cost-summary-row.muted { color: var(--muted); font-size: 10px; }
+.cost-summary-row.saved { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 6px; }
+.cost-summary-row strong.pos { color: var(--green); }
+.cost-summary-row strong.neg { color: #d9534f; }
+.cost-summary-row code { background: transparent; padding: 0; font-size: 10px; }
+.cost-breakdown-body small { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+
+.compare-dash-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; }
+.compare-chart { background: white; border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px; }
+.compare-chart h4 { margin: 0 0 12px 0; font-size: 12px; color: var(--ink); font-weight: 700; }
+.bar-row { display: grid; grid-template-columns: 140px 1fr 80px; gap: 8px; align-items: center; margin-bottom: 6px; }
+.bar-label { font-size: 11px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { background: var(--paper); height: 20px; border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; transition: width 0.3s ease; }
+.bar-value { font: 700 11px "Cascadia Mono", Consolas, monospace; color: var(--ink); text-align: right; }
+.stack-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center; margin-bottom: 4px; }
+.stack-track { display: flex; height: 24px; background: var(--paper); border-radius: 3px; overflow: hidden; }
+.stack-seg { display: flex; align-items: center; justify-content: center; color: white; font: 700 9px "Cascadia Mono", Consolas, monospace; overflow: hidden; white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); font-family: "Cascadia Mono", Consolas, monospace; }
+.legend-item .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.pricing-panel { margin-top: 18px; background: white; border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; }
+.pricing-panel summary { cursor: pointer; font-weight: 700; font-size: 12px; color: var(--ink); font-family: "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; }
+.pricing-panel[open] summary { margin-bottom: 10px; }
+.pricing-panel .cost-explain { font-size: 11px; color: var(--muted); margin: 4px 0 10px; }
+.pricing-table table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.pricing-table th { text-align: left; padding: 6px 8px; background: var(--paper); border-bottom: 1px solid var(--line); font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.pricing-table th small { display: block; font-size: 9px; text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; }
+.pricing-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.pricing-table td.num { text-align: right; font-family: "Cascadia Mono", Consolas, monospace; }
+.pricing-table td.src { font-size: 10px; }
+.pricing-table td.src a { color: var(--accent); text-decoration: none; font-family: "Cascadia Mono", Consolas, monospace; }
+.pricing-table td.src a:hover { text-decoration: underline; }
+.pricing-table tr.used td { background: rgba(46, 125, 50, 0.05); }
+.pricing-table tr.baseline td { background: rgba(217, 83, 79, 0.05); }
+.pricing-table tr.used.baseline td { background: rgba(217, 83, 79, 0.05); }
+.pricing-table .pill { display: inline-block; padding: 1px 6px; border-radius: 3px; font: 700 9px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; background: #d9534f; color: white; margin-left: 4px; }
+.pricing-table .pill-used { background: var(--green); }
+.pricing-table small { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+
+.eval-3mode-pickers { display: flex; flex-direction: column; gap: 8px; padding: 10px; margin-top: 6px; background: rgba(124, 58, 237, 0.05); border: 1px solid rgba(124, 58, 237, 0.2); border-radius: 3px; }
+.eval-3mode-pickers .eval-input { margin: 0; }
+.eval-3mode-pickers .eval-input span { color: #7c3aed; font-weight: 700; }
+
+.benchmark-heading { margin-top: 24px; padding-top: 16px; border-top: 2px solid var(--line); color: #0891b2; }
+.eval-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0 16px; }
+.eval-mode-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px 14px; background: white; border: 2px solid var(--line); border-radius: 4px; font: 700 12px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); cursor: pointer; text-align: left; }
+.eval-mode-btn small { font: 400 10px "Cascadia Mono", Consolas, monospace; text-transform: none; color: var(--muted); letter-spacing: 0; }
+.eval-mode-btn:hover { border-color: var(--accent); color: var(--ink); }
+.eval-mode-btn.active { border-color: #0891b2; background: rgba(8, 145, 178, 0.08); color: #0891b2; }
+.eval-mode-btn.active[data-eval-mode="toolkit"] { border-color: var(--purple, #7c3aed); background: rgba(124, 58, 237, 0.08); color: var(--purple, #7c3aed); }
+.eval-mode-body { margin-bottom: 16px; }
+
+.bench-progress { margin-top: 12px; padding: 10px 12px; background: white; border: 1px solid rgba(8, 145, 178, 0.3); border-radius: 4px; }
+.bench-progress-label { display: flex; justify-content: space-between; font: 700 11px "Cascadia Mono", Consolas, monospace; color: var(--ink); margin-bottom: 6px; }
+.bench-progress-label span:last-child { color: #0891b2; }
+.bench-progress-track { height: 10px; background: var(--paper); border-radius: 2px; overflow: hidden; }
+.bench-progress-fill { height: 100%; background: linear-gradient(90deg, #0891b2, #06b6d4); transition: width 0.3s ease; }
+
+.quick-benchmark-panel { padding: 16px 18px; margin-bottom: 0; background: linear-gradient(135deg, rgba(8, 145, 178, 0.08), rgba(8, 145, 178, 0.02)); border: 2px solid rgba(8, 145, 178, 0.35); border-radius: 6px; box-shadow: 0 2px 8px rgba(8, 145, 178, 0.06); }
+.quick-benchmark-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.quick-benchmark-header h3 { font-size: 15px; }
+.quick-benchmark-pickers { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.quick-benchmark-panel .eval-hint { font-size: 11px; color: var(--muted); margin: 0 0 4px 0; line-height: 1.55; }
+.quick-benchmark-panel .eval-input span { color: #0891b2; font-weight: 700; font-size: 10px; }
+#benchOpenCompareButton { background: white; color: var(--green); border-color: var(--green); }
+#benchOpenCompareButton:hover { background: var(--green); color: white; }
 
 .compare-table-wrap { background: white; border: 1px solid var(--line); border-radius: 4px; overflow: auto; }
 .compare-table { width: 100%; border-collapse: collapse; font-size: 12px; }

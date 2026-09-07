@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch src/server.js",
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
+    "setup": "node --disable-warning=ExperimentalWarning scripts/setup-server.js",
     "check": "node --disable-warning=ExperimentalWarning --check src/server.js && node --disable-warning=ExperimentalWarning --test"
   }
 }

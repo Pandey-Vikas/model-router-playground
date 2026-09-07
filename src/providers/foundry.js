@@ -15,7 +15,7 @@ const DEFAULT_SYSTEM_PROMPT = 'Be brief.';
 
 let cachedToken = null;
 
-async function getEntraToken() {
+export async function getEntraToken() {
   if (cachedToken && cachedToken.expiresOn - Date.now() > 60_000) return cachedToken.token;
   const azCommand = process.platform === 'win32' ? 'az.cmd' : 'az';
   try {
@@ -28,7 +28,7 @@ async function getEntraToken() {
   }
 }
 
-export async function foundryChat({ messages, routingMode, deploymentOverride }) {
+export async function foundryChat({ messages, routingMode, deploymentOverride, source = 'chat', context = null }) {
   const endpoint = required('AZURE_OPENAI_ENDPOINT').replace(/\/$/, '');
   const modeKey = ['balanced', 'cost', 'quality'].includes(routingMode) ? routingMode : 'balanced';
   const modeDeployment = process.env[`MODEL_ROUTER_DEPLOYMENT_${modeKey.toUpperCase()}`];
@@ -44,33 +44,47 @@ export async function foundryChat({ messages, routingMode, deploymentOverride })
 
   const payload = messages[0]?.role === 'system' || !systemPrompt ? messages : [{ role: 'system', content: systemPrompt }, ...messages];
   const requestUrl = `${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
-  pushLog({ kind: 'request', method: 'POST', url: requestUrl, deployment, routingMode: modeKey, auth: apiKey ? 'api-key' : 'entra-id', messageCount: payload.length, maxTokens: maxTokens || 'model default' });
+  pushLog({ kind: 'request', source, context, method: 'POST', url: requestUrl, deployment, routingMode: modeKey, auth: apiKey ? 'api-key' : 'entra-id', messageCount: payload.length, maxTokens: maxTokens || 'model default' });
   const startedAt = performance.now();
   const requestBody = { messages: payload };
   if (maxTokens) requestBody.max_completion_tokens = maxTokens;
+  const maxRetries = Number(process.env.MODEL_ROUTER_MAX_RETRIES) || 3;
   let response;
-  try {
-    response = await fetch(requestUrl, {
-      method: 'POST',
-      headers: { ...authHeaders, 'content-type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-  } catch (error) {
-    pushLog({ kind: 'error', url: requestUrl, latencyMs: Math.round(performance.now() - startedAt), error: error.message });
-    throw error;
+  let body;
+  let attempt = 0;
+  while (true) {
+    try {
+      response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (error) {
+      pushLog({ kind: 'error', source, context, url: requestUrl, latencyMs: Math.round(performance.now() - startedAt), error: error.message });
+      throw error;
+    }
+    body = await response.json();
+    if (response.status !== 429 || attempt >= maxRetries) break;
+    const retryHeader = Number(response.headers.get('retry-after')) || 0;
+    const hintMatch = /retry after (\d+) seconds?/i.exec(body?.error?.message || '');
+    const waitSec = Math.max(retryHeader, hintMatch ? Number(hintMatch[1]) : 0, 5);
+    attempt++;
+    pushLog({ kind: 'response', source, context, status: 429, ok: false, retryInSec: waitSec, attempt, error: `429 rate-limited, retrying in ${waitSec}s (attempt ${attempt}/${maxRetries})` });
+    await new Promise((r) => setTimeout(r, waitSec * 1000));
   }
   const requestId = response.headers.get('x-request-id') || response.headers.get('apim-request-id');
-  const body = await response.json();
   const latencyMs = Math.round(performance.now() - startedAt);
   if (!response.ok) {
     const message = body.error?.message || `Foundry request failed (${response.status})`;
-    pushLog({ kind: 'response', status: response.status, ok: false, latencyMs, requestId, error: message });
+    pushLog({ kind: 'response', source, context, status: response.status, ok: false, latencyMs, requestId, error: message });
     throw new Error(message);
   }
   const usage = body.usage || {};
   pushLog({
     kind: 'response',
+    source,
+    context,
     status: response.status,
     ok: true,
     latencyMs,
