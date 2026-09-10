@@ -176,20 +176,14 @@ function startPolling() {
 function renderBrowserLogin(info) {
   panel.innerHTML =
     '<h2>Complete sign-in</h2>' +
-    '<p class="sub">Opening the Microsoft sign-in page in a new tab. If your browser blocked the popup, click the button below.</p>' +
+    '<p class="sub">A Microsoft sign-in page should have opened automatically. If you do not see it, click the button below. This wizard advances when sign-in finishes.</p>' +
     '<div class="footer" style="justify-content:center"><button id="open" style="padding:14px 28px;font-size:16px">Open Microsoft sign-in</button></div>' +
     '<label style="margin-top:24px">Sign-in URL</label>' +
     '<pre style="user-select:all;font-size:11px">' + escapeHtml(info.url) + '</pre>' +
     '<div class="footer"><button class="secondary" id="cancel">Cancel</button><button class="secondary" id="device">Use device code instead</button></div>' +
     '<div id="pollStatus" class="status info" style="margin-top:12px"><span class="spinner"></span>Waiting for you to complete sign-in in the browser…</div>';
 
-  // Immediately open the auth URL in a foreground tab so the user's active browser handles it, not the hidden az process.
-  const authTab = window.open(info.url, '_blank', 'noopener');
-  if (authTab && authTab.focus) { try { authTab.focus(); } catch { /* ignore */ } }
-  document.getElementById('open').onclick = () => {
-    const t = window.open(info.url, '_blank', 'noopener');
-    if (t && t.focus) { try { t.focus(); } catch { /* ignore */ } }
-  };
+  document.getElementById('open').onclick = () => window.open(info.url, '_blank', 'noopener');
   document.getElementById('cancel').onclick = async () => {
     stopPolling();
     try { await api('/api/login-cancel', { method: 'POST', body: {} }); } catch { /* ignore */ }
@@ -335,7 +329,7 @@ async function renderDeployment() {
     const optionsFor = (selectedIdx) => deps.map((d, i) => '<option value="' + escapeHtml(d.name) + '"' + (i === selectedIdx ? ' selected' : '') + '>' + escapeHtml(d.name) + ' — ' + escapeHtml(d.model || 'unknown') + ' · v' + escapeHtml(d.version || 'unknown') + '</option>').join('');
     panel.innerHTML =
       '<h2>Assign deployments to router modes</h2>' +
-      '<p class="sub">Pick from existing deployments below, or scroll down to <b>create fresh ones with one click</b>.</p>' +
+      '<p class="sub">Each mode routes to its own deployment. If you only have one, leave all three the same and the app will show a banner explaining why.</p>' +
       help +
       '<label for="depBalanced">Balanced deployment</label>' +
       '<select id="depBalanced">' + optionsFor(balancedIdx) + '</select>' +
@@ -346,16 +340,7 @@ async function renderDeployment() {
       '<label for="ver">Azure OpenAI REST API version</label>' +
       '<input type="text" id="ver" value="' + escapeHtml(state.apiVersion) + '">' +
       '<div class="warn" style="margin-top:6px">This is the <b>REST API version</b> (shape of the HTTP request), not the Model Router version. The <b>Model Router version</b> (e.g. <code>2025-11-18</code>) shown next to each deployment above is set at deployment time in Foundry and cannot be changed here.</div>' +
-      '<details style="margin-top:16px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.25);border-radius:6px;padding:10px 14px" open>' +
-        '<summary style="cursor:pointer;font-weight:700;color:#a985ff">Create router deployments + baseline in one click</summary>' +
-        '<p class="sub" style="margin-top:8px">Tick the ones to create, adjust names, then click Deploy. Router versions default to <code>2025-11-18</code>, capacity 10 K TPM.</p>' +
-        '<p class="sub" style="background:rgba(124,58,237,0.15);padding:8px 10px;border-radius:4px;margin:8px 0;color:#c9b3ff"><b>How this works:</b> the Foundry router model is always called <code>model-router</code>. The name below is your <b>deployment name</b> — pick any label; the wizard pairs it with <code>model.name=model-router</code> and your chosen <code>routing.mode</code> in the deploy request.</p>' +
-        '<div id="batchList" style="display:flex;flex-direction:column;gap:6px;margin:10px 0"></div>' +
-        '<div class="footer" style="margin-top:8px"><button class="secondary" onclick="renderDeployment()">Refresh list</button><button id="doDeploy" style="background:#7c3aed;color:white">Deploy selected</button></div>' +
-      '</details>' +
       '<div class="footer"><button class="secondary" onclick="setStep(3)">Back</button><button class="secondary" onclick="renderDeployment()">Refresh</button><button id="next">Continue</button></div>';
-    renderBatchList();
-    document.getElementById('doDeploy').onclick = doBatchDeploy;
     document.getElementById('next').onclick = () => {
       state.deploymentBalanced = document.getElementById('depBalanced').value;
       state.deploymentCost = document.getElementById('depCost').value;
@@ -365,101 +350,6 @@ async function renderDeployment() {
       setStep(5);
     };
   } catch (e) { showError(e.message); }
-}
-
-const BATCH_ROWS = [
-  { key: 'balanced', kind: 'router', label: 'Balanced router', deploymentName: 'mr-balanced', mode: 'balanced' },
-  { key: 'cost', kind: 'router', label: 'Cost router', deploymentName: 'mr-cost', mode: 'cost' },
-  { key: 'quality', kind: 'router', label: 'Quality router', deploymentName: 'mr-quality', mode: 'quality' },
-  { key: 'baseline', kind: 'model', label: 'Baseline', deploymentName: 'gpt-5.2', modelName: 'gpt-5.2', modelVersion: '2025-12-11' }
-];
-
-function renderBatchList() {
-  const el = document.getElementById('batchList');
-  if (!el) return;
-  el.innerHTML = BATCH_ROWS.map((row) =>
-    '<div class="batch-row" data-key="' + row.key + '" style="display:grid;grid-template-columns:1.3fr 1.5fr 1fr auto;gap:6px;align-items:center;padding:8px 10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:4px;font-size:12px">' +
-      '<label style="display:flex;align-items:center;gap:6px;font-weight:600"><input type="checkbox" data-field="enabled" checked> ' + escapeHtml(row.label) + '</label>' +
-      '<input type="text" data-field="deploymentName" value="' + escapeHtml(row.deploymentName) + '" style="padding:5px 8px;font-size:11px">' +
-      (row.kind === 'router'
-        ? '<select data-field="mode"><option value="balanced"' + (row.mode === 'balanced' ? ' selected' : '') + '>balanced</option><option value="cost"' + (row.mode === 'cost' ? ' selected' : '') + '>cost</option><option value="quality"' + (row.mode === 'quality' ? ' selected' : '') + '>quality</option></select>'
-        : '<input type="text" data-field="modelName" value="' + escapeHtml(row.modelName) + '" style="padding:5px 8px;font-size:11px">') +
-      '<span class="batch-status" data-status="idle" style="font:700 10px monospace;text-transform:uppercase;padding:3px 8px;border-radius:3px;background:rgba(255,255,255,0.1);color:#888;min-width:70px;text-align:center">idle</span>' +
-    '</div>'
-  ).join('');
-}
-
-async function doBatchDeploy() {
-  const rows = document.querySelectorAll('.batch-row');
-  const template = new Map(BATCH_ROWS.map((t) => [t.key, t]));
-  const items = [];
-  rows.forEach((rowEl) => {
-    const key = rowEl.dataset.key;
-    const tpl = template.get(key);
-    if (!rowEl.querySelector('[data-field="enabled"]').checked) return;
-    const deploymentName = rowEl.querySelector('[data-field="deploymentName"]').value.trim();
-    if (!deploymentName) return;
-    if (tpl.kind === 'router') {
-      items.push({ key, kind: 'router', deploymentName, mode: rowEl.querySelector('[data-field="mode"]').value, capacity: 20, version: '2025-11-18' });
-    } else {
-      items.push({ key, kind: 'model', deploymentName, modelName: rowEl.querySelector('[data-field="modelName"]').value.trim() || tpl.modelName, modelVersion: tpl.modelVersion, sku: 'GlobalStandard', capacity: 1 });
-    }
-  });
-  if (!items.length) { alert('Tick at least one row.'); return; }
-  if (!confirm('Deploy ' + items.length + ' model(s) into ' + state.foundry.name + '? Each takes ~30s.')) return;
-  const btn = document.getElementById('doDeploy');
-  btn.disabled = true; btn.textContent = 'Deploying...';
-  items.forEach((i) => setBatchStatus(i.key, 'creating'));
-  try {
-    const result = await api('/api/deploy-batch', { method: 'POST', body: {
-      items,
-      subscriptionId: state.foundry.subscriptionId,
-      resourceGroup: state.foundry.resourceGroup,
-      accountName: state.foundry.name
-    } });
-    for (const r of result.results || []) setBatchStatus(r.key, r.ok ? 'success' : 'failed', r.error);
-    btn.textContent = 'Deploy selected';
-    btn.disabled = false;
-    // Instead of re-rendering the whole page (which resets the status pills), just append the newly-created deployments to the three dropdowns.
-    for (const item of items.filter((_, i) => (result.results?.[i]?.ok))) {
-      for (const selId of ['depBalanced', 'depCost', 'depQuality']) {
-        const sel = document.getElementById(selId);
-        if (!sel) continue;
-        if (![...sel.options].some((o) => o.value === item.deploymentName)) {
-          const opt = document.createElement('option');
-          opt.value = item.deploymentName;
-          opt.textContent = item.deploymentName + ' — ' + (item.kind === 'router' ? 'model-router · v2025-11-18' : (item.modelName + ' · v' + item.modelVersion));
-          sel.appendChild(opt);
-        }
-      }
-    }
-    // Auto-select each router mode's fresh deployment in its corresponding dropdown.
-    const routerMap = { balanced: 'depBalanced', cost: 'depCost', quality: 'depQuality' };
-    for (const r of result.results || []) {
-      if (!r.ok) continue;
-      const item = items.find((i) => i.key === r.key);
-      if (item?.kind === 'router' && routerMap[item.mode]) {
-        const sel = document.getElementById(routerMap[item.mode]);
-        if (sel) sel.value = item.deploymentName;
-      }
-    }
-  } catch (e) {
-    alert('Batch deploy failed: ' + e.message);
-    btn.textContent = 'Deploy selected';
-    btn.disabled = false;
-    items.forEach((i) => setBatchStatus(i.key, 'failed', e.message));
-  }
-}
-
-function setBatchStatus(key, state, error) {
-  const el = document.querySelector('.batch-row[data-key="' + key + '"] .batch-status');
-  if (!el) return;
-  el.dataset.status = state;
-  const colors = { idle: '#888', queued: '#e0a54a', creating: '#0891b2', success: '#2e7d32', failed: '#d9534f' };
-  const bg = state === 'success' || state === 'failed' ? colors[state] : (state === 'creating' ? 'rgba(8,145,178,0.25)' : 'rgba(224,165,74,0.25)');
-  el.style.background = bg;
-  el.style.color = state === 'success' || state === 'failed' ? 'white' : colors[state];
-  el.textContent = state === 'failed' && error ? 'failed: ' + error.slice(0, 30) : state;
 }
 
 function buildEnvPreview() {

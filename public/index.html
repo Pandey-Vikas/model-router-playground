@@ -18,7 +18,6 @@
         <div class="section-label"><span>History</span><span id="historyCount">0</span></div>
         <nav class="history-list" id="historyList" aria-label="Conversation history"></nav>
         <div class="provider-status"><span class="status-dot"></span><div><strong id="providerName">Mock router</strong><small id="providerHint">Ready without an endpoint</small></div></div>
-        <button type="button" class="setup-launch-button" id="setupLaunchButton" title="Launch the setup wizard to change endpoint, deployments, or auth">⚙ Change environment</button>
       </aside>
 
       <main class="chat-panel">
@@ -40,11 +39,11 @@
         <div class="eval-lockout" id="evalLockout" hidden>
           <div class="eval-lockout-inner">
             <div class="eval-lockout-spinner"></div>
-            <h2 id="evalLockoutTitle">Evaluation in progress</h2>
-            <p id="evalLockoutMessage">Chat is paused while the Auto-Evaluation toolkit is running. Watch the Evaluation tab → live console for progress.</p>
+            <h2>Evaluation in progress</h2>
+            <p>Chat is paused while the Auto-Evaluation toolkit is running. Watch the Evaluation tab → live console for progress.</p>
             <div style="display:flex;gap:12px;justify-content:center">
               <button type="button" id="evalLockoutJump">Open Evaluation tab</button>
-              <button type="button" id="evalLockoutStop" class="danger-button">Stop</button>
+              <button type="button" id="evalLockoutStop" class="danger-button">Stop evaluation</button>
             </div>
           </div>
         </div>
@@ -89,6 +88,23 @@
             <p class="ladder-hint" id="ladderHint">Quick = curated 15-prompt spread across all tiers (~2 min). Full = all 30 (~5 min).</p>
             <div class="ladder-progress" id="ladderProgress" hidden><div class="ladder-bar"><span id="ladderBarFill"></span></div><small id="ladderProgressText">0 / 30</small><button type="button" class="ladder-stop" id="ladderStopButton" hidden>Stop</button></div>
           </div>
+          <div class="dataset-import">
+            <div class="dataset-import-head">
+              <p class="eyebrow">YOUR DATA</p>
+              <h3>Import your dataset</h3>
+              <p>Bring your own prompts. Each one runs through the current mode so you can see how the router picks models on your workload.</p>
+            </div>
+            <label class="dataset-import-drop" for="datasetFile">
+              <input id="datasetFile" type="file" accept=".jsonl,.json,.txt,.csv" hidden>
+              <span class="dataset-import-cta">Choose file…</span>
+              <small>JSONL <code>{"prompt":"…"}</code> · JSON array · one prompt per line · CSV with a <code>prompt</code> column</small>
+            </label>
+            <div class="dataset-import-summary" id="datasetSummary" hidden>
+              <div><strong id="datasetName">—</strong><small id="datasetCount">0 prompts</small></div>
+              <button type="button" class="dataset-clear" id="datasetClearButton">Clear</button>
+            </div>
+            <button class="ladder-button quick" id="runDatasetButton" type="button" disabled><span class="ladder-icon" aria-hidden="true">▶</span><span class="ladder-label">Run imported dataset</span></button>
+          </div>
           <details class="demo-guide">
             <summary>How to run the full demo (5 min)</summary>
             <ol>
@@ -117,11 +133,6 @@
           <div class="model-chart" id="modelChart"></div>
           <h3>Complexity trail</h3>
           <div class="complexity-trail" id="complexityTrail"></div>
-          <details class="pricing-panel">
-            <summary>Pricing catalog — rates used for cost calculation</summary>
-            <p class="cost-explain">These are the per-model rates the app multiplies token counts by. Rates are captured with each response, so a later change to <code>public/pricing.js</code> won't rewrite past costs.</p>
-            <div class="pricing-table" id="pricingTable"><p class="empty-analytics">Loading catalog…</p></div>
-          </details>
         </section>
         <section id="logsTab" class="tab-content hidden">
           <div class="panel-intro"><p class="eyebrow">LIVE STREAM</p><h2>Foundry API calls</h2><p>Every request and response to your Model Router deployment as it happens.</p></div>
@@ -129,79 +140,49 @@
           <div class="logs-list" id="logsList"><p class="empty-analytics">Waiting for the first Foundry call…</p></div>
         </section>
         <section id="evalTab" class="tab-content hidden">
-          <div class="panel-intro"><p class="eyebrow">BENCHMARK</p><h2>Run a full evaluation</h2><p>Pick a mode below. <b>Quick benchmark</b> is fast (~1 min), captures cost / latency / model distribution, no judge. <b>Toolkit evaluation</b> is thorough (~15 min), adds LLM-as-judge quality scoring.</p></div>
+          <div class="panel-intro"><p class="eyebrow">BENCHMARK</p><h2>Run a full evaluation</h2><p>The <a href="https://github.com/microsoft-foundry/Model-Router-Auto-Evaluation" target="_blank">Model Router Auto Evaluation toolkit</a> runs your prompts against router + baseline, scores quality with a judge model, and produces a full dashboard.</p></div>
 
-          <h3 style="margin-top:0">1. Choose dataset</h3>
-          <div class="eval-source">
-            <label class="radio-item"><input type="radio" name="evalSource" value="scenarios30" checked> Built-in — all 30 scenarios <small>(~10 min)</small></label>
-            <label class="radio-item"><input type="radio" name="evalSource" value="scenarios15"> Built-in — curated 15 scenarios <small>(~5 min)</small></label>
-            <label class="radio-item"><input type="radio" name="evalSource" value="scenarios10"> Built-in — demo 10 scenarios (easy·medium·hard mix) <small>(~2 min)</small></label>
-            <div id="evalToolkitDatasets"></div>
-            <div id="evalUserDatasets"></div>
-          </div>
-          <small class="eval-count" id="evalCount"></small>
-          <details class="eval-byo">
-            <summary>Bring your own dataset (JSONL)</summary>
-            <p class="eval-hint">Format: one JSON object per line — <code>{"id","prompt","category","difficulty"}</code>. Categories: <code>code_generation, general_knowledge, creative_writing, instruction_following, math, reasoning, summarization, technical_knowledge</code>. Difficulty: <code>easy | medium | hard</code>.</p>
-            <div class="eval-byo-samples" id="evalByoSamples"><p class="eval-hint">Loading sample templates…</p></div>
-            <label class="eval-input"><span>Filename</span><input type="text" id="evalByoName" placeholder="my-prompts.jsonl" value="my-prompts.jsonl"></label>
-            <label class="eval-input"><span>Upload .jsonl file</span><input type="file" id="evalByoFile" accept=".jsonl,.json,application/x-ndjson,application/json"></label>
-            <label class="eval-input"><span>Or paste JSONL below</span><textarea id="evalByoContent" rows="6" placeholder='{"id":"q1","prompt":"...","category":"reasoning","difficulty":"medium"}'></textarea></label>
-            <button type="button" class="eval-action secondary" id="evalByoSaveButton">Save & use this dataset</button>
-          </details>
-
-          <h3>2. Pick a mode &amp; run</h3>
-          <div class="eval-mode-switch">
-            <button type="button" class="eval-mode-btn active" data-eval-mode="quick">⚡ Quick benchmark<small>~1 min · no judge</small></button>
-            <button type="button" class="eval-mode-btn" data-eval-mode="toolkit">🧪 Toolkit evaluation<small>~15 min · with judge</small></button>
-          </div>
-
-          <div id="evalModeQuick" class="eval-mode-body">
-            <div class="quick-benchmark-panel">
-              <p class="eval-hint">Fires the dataset picked above at up to 4 deployments in parallel using RouteLab's own Entra-authed caller. Captures per-response cost, latency, tokens, model. Result: N conversations auto-open in the <b>Compare Dashboard</b>. No Python, no judge, no toolkit.</p>
-              <div class="quick-benchmark-pickers">
-                <label class="eval-input"><span>Balanced router</span><select id="benchBalanced"><option value="">— skip —</option></select></label>
-                <label class="eval-input"><span>Cost router</span><select id="benchCost"><option value="">— skip —</option></select></label>
-                <label class="eval-input"><span>Quality router</span><select id="benchQuality"><option value="">— skip —</option></select></label>
-                <label class="eval-input"><span>Baseline model</span><select id="benchBaseline"><option value="">— pick baseline —</option></select></label>
-              </div>
-              <div class="quick-benchmark-pickers" style="margin-top:8px">
-                <label class="eval-input" title="Number of prompts fired in parallel per endpoint. Lower = fewer 429 errors."><span>Concurrency</span><select id="benchConcurrency"><option value="1">1 (slowest, safest)</option><option value="2" selected>2 (recommended)</option><option value="3">3</option><option value="5">5 (aggressive)</option></select></label>
-                <label class="eval-input" title="Delay between requests per worker. Higher = under rate limit."><span>Delay between requests</span><select id="benchDelayMs"><option value="0">0 ms (no throttle)</option><option value="250">250 ms</option><option value="500" selected>500 ms</option><option value="1000">1 s</option><option value="2000">2 s</option></select></label>
-              </div>
-              <div class="bench-progress" id="benchProgress" hidden>
-                <div class="bench-progress-label"><span id="benchProgressLabel">Waiting…</span><span id="benchProgressCount">0/0</span></div>
-                <div class="bench-progress-track"><div class="bench-progress-fill" id="benchProgressFill" style="width:0%"></div></div>
-              </div>
-              <div class="eval-actions" style="margin-top:10px">
-                <button type="button" class="eval-action" id="benchRunButton" style="background:#0891b2">▶ Run quick benchmark</button>
-                <button type="button" class="eval-action danger" id="benchStopButton" hidden>Stop benchmark</button>
-                <button type="button" class="eval-action secondary" id="benchOpenCompareButton" hidden>Open in Compare Dashboard</button>
-              </div>
-            </div>
-          </div>
-
-          <div id="evalModeToolkit" class="eval-mode-body" hidden>
-
-          <details class="demo-guide">
-            <summary>How to run the toolkit evaluation (first time, ~15 min)</summary>
+          <details class="demo-guide" open>
+            <summary>How to run the evaluation (first time, ~15 min)</summary>
             <ol>
-              <li><b>Install toolkit</b> — click below. One-time <code>git clone</code> + <code>pip install</code>. Needs Python 3.9+ and Git.</li>
-              <li><b>Deploy baseline &amp; judge</b> — expand "Deploy a recommended model" below.</li>
+              <li><b>Install toolkit</b> — click below. One-time <code>git clone</code> + <code>pip install</code>. Needs Python 3.9+ and Git. RouteLab auto-patches the toolkit's client for Entra ID.</li>
+              <li><b>Auth</b> — already handled. Setup wizard signed you in and wrote <code>.env</code>. RouteLab reuses that session (Entra ID via <code>az</code>, or <code>AZURE_OPENAI_API_KEY</code> if you provided one). Check the Auth chip below — only re-run <code>az login</code> if the token has expired.</li>
+              <li><b>Deploy baseline &amp; judge</b> — expand "Deploy a recommended model" below. Deploy <code>gpt-5.6-luna</code> if you want a strong judge; <code>gpt-5.2</code> is a solid baseline.</li>
+              <li><b>Pick dataset</b> — Built-in 15/30 for a quick benchmark, a bundled toolkit dataset, or <b>Upload your own dataset</b> (JSONL / JSON / CSV / plain text) — RouteLab auto-fills missing <code>id</code>s.</li>
               <li><b>Pick router / baseline / judge</b> from the dropdowns.</li>
-              <li><b>Dry run first</b> — validates the dataset, no API cost.</li>
-              <li><b>Live evaluation</b> — click "Run live evaluation". Watch the console below.</li>
-              <li><b>Open dashboard</b> — button below the console opens the toolkit's HTML report.</li>
+              <li><b>Dry run first</b> — click "Dry run (validate)". Validates the dataset, no API cost.</li>
+              <li><b>Live evaluation</b> — click "Run live evaluation". Watch the console below. Chat is locked while it runs.</li>
+              <li><b>Open dashboard</b> — button below the console opens the toolkit's HTML report in your default browser.</li>
+              <li><b>Repeat per mode</b> — change router to <code>mr-cost</code>, then <code>mr-quality</code>, run again. Compare 3 dashboards.</li>
             </ol>
           </details>
 
           <div class="eval-status" id="evalStatus"></div>
 
-          <h4 style="margin-top:0">Install toolkit</h4>
+          <h3 style="margin-top:0">1. Install toolkit</h3>
           <p class="eval-hint">One-time: clones the repo into <code>eval-toolkit/</code>, creates a Python venv, installs dependencies. Requires Python 3.9+ and Git.</p>
           <button type="button" class="eval-action" id="evalInstallButton">Install / update toolkit</button>
 
-          <h4>Configure &amp; run</h4>
+          <h3>2. Choose dataset</h3>
+          <div class="eval-source">
+            <label class="radio-item"><input type="radio" name="evalSource" value="scenarios30" checked><span>Built-in — all 30 scenarios <small>(~10 min)</small></span></label>
+            <label class="radio-item"><input type="radio" name="evalSource" value="scenarios15"><span>Built-in — curated 15 scenarios <small>(~5 min)</small></span></label>
+            <div id="evalToolkitDatasets"></div>
+            <div id="evalUserDatasets"></div>
+          </div>
+          <small class="eval-count" id="evalCount"></small>
+          <details class="eval-upload" id="evalUpload">
+            <summary>Upload your own dataset (JSONL / JSON / CSV / plain text)</summary>
+            <p class="eval-hint">Each prompt gets scored by the judge model. Toolkit needs an <code>id</code> and <code>prompt</code> per row — RouteLab auto-fills <code>id</code> if missing.</p>
+            <label class="eval-upload-drop" for="evalUploadFile">
+              <input id="evalUploadFile" type="file" accept=".jsonl,.json,.txt,.csv" hidden>
+              <span class="eval-upload-cta">Choose file…</span>
+              <small>Fields recognised: <code>prompt</code> (required), <code>id</code>, <code>category</code>, <code>difficulty</code> (easy/medium/hard), <code>level</code></small>
+            </label>
+            <div class="eval-upload-status" id="evalUploadStatus" hidden></div>
+          </details>
+
+          <h3>3. Configure & run</h3>
           <p class="eval-hint">Router = which router deployment to evaluate. Baseline = the fixed model you'd otherwise use. Judge = the model that scores answers.</p>
           <label class="eval-input"><span>Router deployment (what to evaluate)</span><select id="evalRouter"><option value="">— use MODEL_ROUTER_DEPLOYMENT_BALANCED from .env —</option></select></label>
           <label class="eval-input"><span>Baseline deployment (a non-router model)</span><select id="evalBaseline"><option value="">— pick a baseline model —</option></select></label>
@@ -210,18 +191,6 @@
           <details class="eval-deploy-details">
             <summary>Deploy a recommended model (I have az login)</summary>
             <div class="eval-recommend" id="evalRecommend"><p class="eval-hint">Loading recommendations…</p></div>
-          </details>
-          <details class="eval-deploy-details" open>
-            <summary>Create router deployments + baseline in one click</summary>
-            <div class="router-deploy-panel">
-              <p class="eval-hint">Deploys up to 4 models sequentially into your Foundry account: three <code>model-router</code> deployments (balanced / cost / quality mode) plus one baseline chat model. Each row shows real-time status.</p>
-              <p class="eval-hint" style="background:rgba(124,58,237,0.1);padding:8px 10px;border-radius:3px;margin:8px 0"><b>How this works:</b> Foundry's router model is always called <code>model-router</code>. Only the <b>deployment name</b> below is yours to choose — pick any label, RouteLab automatically pairs it with <code>model.name=model-router</code> in the deployment request. The <b>mode</b> dropdown sets <code>routing.mode</code> in the same PUT.</p>
-              <div class="batch-deploy-list" id="batchDeployList"></div>
-              <div class="eval-actions" style="margin-top:10px">
-                <button type="button" class="eval-action" id="batchDeployButton" style="background:var(--purple,#7c3aed)">Deploy selected</button>
-                <button type="button" class="eval-action secondary" id="batchDeployRefresh">Reset rows</button>
-              </div>
-            </div>
           </details>
           <label class="eval-input"><span>Config</span>
             <select id="evalConfig">
@@ -234,24 +203,12 @@
             <button type="button" class="eval-action" id="evalRunButton">Run live evaluation</button>
             <button type="button" class="eval-action danger" id="evalStopButton" hidden>Stop</button>
           </div>
-          <button type="button" class="eval-action" id="evalRun3ModesButton" style="margin-top:8px;background:var(--purple,#7c3aed);">Run 3-mode comparison (balanced · cost · quality vs same baseline)</button>
-          <p class="eval-hint" style="margin-top:4px">Runs the dataset three times — once per router mode — all against the baseline picked above. Takes 3× as long.</p>
-          <div class="eval-3mode-pickers">
-            <label class="eval-input"><span>Balanced router</span><select id="evalMode3Balanced"><option value="">— skip balanced —</option></select></label>
-            <label class="eval-input"><span>Cost router</span><select id="evalMode3Cost"><option value="">— skip cost —</option></select></label>
-            <label class="eval-input"><span>Quality router</span><select id="evalMode3Quality"><option value="">— skip quality —</option></select></label>
-          </div>
-          <button type="button" class="eval-action" id="evalOpenReportButton" style="margin-top:10px">Open latest toolkit dashboard.html</button>
-          </div>
 
-          <h3>3. Output</h3>
+          <h3>4. Output</h3>
           <div class="eval-console" id="evalConsole"><p class="empty-analytics">Console will show live output once you install or run.</p></div>
-
-          <h3>4. Past evaluations</h3>
+          <button type="button" class="eval-action" id="evalOpenReportButton" style="margin-top:8px">Open latest dashboard.html</button>
+          <h3>5. Past evaluations</h3>
           <div class="eval-history" id="evalHistory"><p class="empty-analytics">No evaluations run yet.</p></div>
-
-          <h3>5. Past quick benchmarks</h3>
-          <div class="eval-history" id="benchHistory"><p class="empty-analytics">No benchmarks run yet.</p></div>
         </section>
       </aside>
       <button class="mobile-inspector" id="inspectorButton" type="button">Scenarios & analytics</button>
