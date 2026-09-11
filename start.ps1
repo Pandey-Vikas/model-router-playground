@@ -25,18 +25,25 @@ if (-not $node) {
 $nodeVersion = (& node --version).Trim()
 Write-Host "Node $nodeVersion  ($($node.Source))" -ForegroundColor Gray
 
-# 2. Free port 3000 if a previous run is still holding it
-$busy = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
-if ($busy) {
+# 2. Free any leftover ports (main app on 3000, setup wizard on 3100)
+function Stop-PortOwner([int]$Port) {
+    $busy = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $busy) { return $false }
+    $killed = $false
     foreach ($conn in $busy) {
         try {
             $p = Get-Process -Id $conn.OwningProcess -ErrorAction Stop
-            Write-Host "Port 3000 is held by PID $($p.Id) ($($p.ProcessName)). Stopping it..." -ForegroundColor Yellow
+            Write-Host "Port $Port is held by PID $($p.Id) ($($p.ProcessName)). Stopping it..." -ForegroundColor Yellow
             Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+            $killed = $true
         } catch { }
     }
-    Start-Sleep -Milliseconds 500
+    return $killed
 }
+$anyKilled = $false
+$anyKilled = (Stop-PortOwner 3000) -or $anyKilled
+$anyKilled = (Stop-PortOwner 3100) -or $anyKilled
+if ($anyKilled) { Start-Sleep -Milliseconds 500 }
 
 # 3. Open the browser once the port is up (in a background job so it doesn't block)
 Start-Job -ScriptBlock {

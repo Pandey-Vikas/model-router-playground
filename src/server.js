@@ -1,7 +1,8 @@
 import { createServer as createHttpServer } from 'node:http';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { createDatabase } from './db.js';
 import { scenarios } from './scenarios.js';
 import { mockChat } from './providers/mock.js';
@@ -61,6 +62,32 @@ export function createApp({ database = createDatabase(), providerName = process.
       }
       if (url.pathname === '/api/analytics' && request.method === 'GET') return sendJson(response, 200, database.getAnalytics(url.searchParams.get('conversationId') || undefined));
       if (url.pathname === '/api/data' && request.method === 'DELETE') { database.clearAll(); return sendJson(response, 200, { ok: true }); }
+
+      if (url.pathname === '/api/setup/launch' && request.method === 'POST') {
+        try {
+          const rootDir = join(fileURLToPath(new URL('.', import.meta.url)), '..');
+          const setupScript = join(rootDir, 'scripts', 'setup-server.js');
+          if (!existsSync(setupScript)) {
+            return sendJson(response, 500, { error: `Setup wizard script not found at ${setupScript}` });
+          }
+          const alreadyUp = await fetch('http://127.0.0.1:3100/', { signal: AbortSignal.timeout(600) })
+            .then((r) => r.ok || r.status === 404).catch(() => false);
+          if (alreadyUp) {
+            return sendJson(response, 200, { ok: true, url: 'http://localhost:3100/', reused: true });
+          }
+          const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', setupScript], {
+            cwd: rootDir,
+            detached: true,
+            stdio: 'ignore',
+            env: { ...process.env, AZURE_LOGIN_EXPERIENCE_V2: 'off' }
+          });
+          child.on('error', () => { /* detached, ignore */ });
+          child.unref();
+          return sendJson(response, 200, { ok: true, url: 'http://localhost:3100/' });
+        } catch (error) {
+          return sendJson(response, 500, { error: String(error?.message || error) });
+        }
+      }
 
       const scoreMatch = url.pathname.match(/^\/api\/conversations\/([0-9a-f-]+)\/score$/);
       if (scoreMatch && request.method === 'POST') {

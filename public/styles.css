@@ -90,6 +90,8 @@ button { color: inherit; cursor: pointer; }
 .history-item:hover .history-delete, .history-delete:focus-visible { opacity: 1; }
 .history-delete:hover { color: var(--coral); background: var(--coral-soft); }
 .provider-status { display: flex; align-items: center; gap: 9px; padding: 13px 8px 0; border-top: 1px solid var(--line); }
+.change-env-button { margin: 8px 0 0; padding: 8px 10px; background: var(--surface); color: var(--muted); border: 1px solid var(--line); border-radius: 3px; font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; width: 100%; text-align: left; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+.change-env-button:hover { background: var(--green-soft); color: var(--green); border-color: var(--green); }
 .theme-switcher { display: flex; gap: 4px; margin: 12px 0 0; padding: 4px; background: color-mix(in srgb, var(--ink) 4%, transparent); border: 1px solid var(--line); border-radius: 5px; }
 .theme-btn { flex: 1; padding: 6px 4px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font: 700 9px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; transition: background 0.15s, color 0.15s; }
 .theme-btn:hover { color: var(--ink); }

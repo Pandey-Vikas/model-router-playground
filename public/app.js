@@ -1268,6 +1268,13 @@ try {
   elements.compareButton?.addEventListener('click', openComparePicker);
   elements.compareClose?.addEventListener('click', () => { elements.compareModal.hidden = true; });
   elements.compareModal?.addEventListener('click', (event) => { if (event.target === elements.compareModal) elements.compareModal.hidden = true; });
+  elements.changeEnvButton?.addEventListener('click', async () => {
+    try {
+      const r = await api('/api/setup/launch', { method: 'POST', body: '{}' });
+      showToast('Setup wizard launching…');
+      setTimeout(() => window.open(r.url || 'http://localhost:3100/', '_blank'), 1200);
+    } catch (error) { showToast('Could not launch setup wizard: ' + error.message); }
+  });
   elements.evalExportButton?.addEventListener('click', exportJsonl);
   elements.evalInstallButton?.addEventListener('click', async () => {
     try { await api('/api/eval/install', { method: 'POST', body: '{}' }); showToast('Toolkit install started.'); refreshEvalStatus(); }

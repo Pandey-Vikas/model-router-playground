@@ -200,6 +200,22 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, { ok: true });
     }
 
+    if (url.pathname === '/api/prerequisites' && request.method === 'GET') {
+      const result = await checkPrerequisites();
+      return sendJson(response, 200, result);
+    }
+
+    if (url.pathname === '/api/prerequisites/install' && request.method === 'POST') {
+      const { tool } = await readJson(request);
+      try {
+        await installPrerequisite(tool);
+        const status = await checkPrerequisites();
+        return sendJson(response, 200, { ok: true, status });
+      } catch (error) {
+        return sendJson(response, 500, { error: String(error?.stderr || error?.message || error) });
+      }
+    }
+
     if (url.pathname === '/api/subscriptions' && request.method === 'GET') {
       const subs = await az(['account', 'list']);
       return sendJson(response, 200, subs || []);
@@ -231,6 +247,54 @@ const server = createServer(async (request, response) => {
           };
         });
       return sendJson(response, 200, filtered);
+    }
+
+    if (url.pathname === '/api/resource-groups' && request.method === 'GET') {
+      const groups = await az(['group', 'list']);
+      const mapped = (groups || []).map(g => ({ name: g.name, location: g.location }));
+      return sendJson(response, 200, mapped);
+    }
+
+    if (url.pathname === '/api/foundry-locations' && request.method === 'GET') {
+      const preferred = ['eastus', 'eastus2', 'westus', 'westus2', 'westus3', 'southcentralus', 'northcentralus', 'westeurope', 'northeurope', 'swedencentral', 'switzerlandnorth', 'uksouth', 'francecentral', 'australiaeast', 'japaneast', 'canadaeast'];
+      try {
+        const locs = await az(['account', 'list-locations']);
+        const known = new Set((locs || []).map(l => l.name));
+        const filtered = preferred.filter(p => known.has(p));
+        return sendJson(response, 200, filtered.length ? filtered : preferred);
+      } catch {
+        return sendJson(response, 200, preferred);
+      }
+    }
+
+    if (url.pathname === '/api/create-foundry' && request.method === 'POST') {
+      const { name, resourceGroup, location, createGroup, sku } = await readJson(request);
+      if (!name || !resourceGroup || !location) {
+        return sendJson(response, 400, { error: 'name, resourceGroup and location are required' });
+      }
+      try {
+        if (createGroup) {
+          await az(['group', 'create', '--name', resourceGroup, '--location', location]);
+        }
+        const created = await az([
+          'cognitiveservices', 'account', 'create',
+          '--name', name,
+          '--resource-group', resourceGroup,
+          '--kind', 'AIServices',
+          '--sku', sku || 'S0',
+          '--location', location,
+          '--yes'
+        ]);
+        return sendJson(response, 200, {
+          name: created.name,
+          kind: created.kind,
+          resourceGroup,
+          location: created.location || location,
+          endpoint: created.properties?.endpoint || `https://${name}.openai.azure.com/`
+        });
+      } catch (error) {
+        return sendJson(response, 500, { error: String(error.stderr || error.message) });
+      }
     }
 
     if (url.pathname === '/api/deployments' && request.method === 'GET') {
@@ -286,6 +350,92 @@ const server = createServer(async (request, response) => {
     console.error(error);
   }
 });
+
+// Prerequisite check registry: each entry knows how to detect and (optionally) install a tool.
+const prerequisites = [
+  {
+    key: 'node',
+    label: 'Node.js',
+    required: '22 or later',
+    detect: async () => {
+      const { stdout } = await execFileAsync(process.execPath, ['--version']);
+      return { installed: true, version: stdout.trim().replace(/^v/, '') };
+    },
+    winget: null // Wizard already runs on Node — self-referential install not supported here.
+  },
+  {
+    key: 'azcli',
+    label: 'Azure CLI',
+    required: 'any recent version',
+    detect: async () => {
+      const cmd = process.platform === 'win32' ? 'az.cmd' : 'az';
+      const { stdout } = await execFileAsync(cmd, ['version', '--output', 'json'], { shell: useShell, timeout: 15_000 });
+      const j = JSON.parse(stdout);
+      return { installed: true, version: j['azure-cli'] };
+    },
+    winget: 'Microsoft.AzureCLI'
+  },
+  {
+    key: 'python',
+    label: 'Python',
+    required: '3.9 or later (only for Auto Evaluation toolkit)',
+    detect: async () => {
+      const cmd = process.platform === 'win32' ? 'python' : 'python3';
+      const { stdout } = await execFileAsync(cmd, ['--version'], { shell: useShell, timeout: 10_000 });
+      return { installed: true, version: stdout.trim().replace(/^Python /i, '') };
+    },
+    winget: 'Python.Python.3.12'
+  },
+  {
+    key: 'git',
+    label: 'Git',
+    required: 'any recent version (only for Auto Evaluation toolkit)',
+    detect: async () => {
+      const { stdout } = await execFileAsync('git', ['--version'], { shell: useShell, timeout: 10_000 });
+      return { installed: true, version: stdout.trim().replace(/^git version /i, '') };
+    },
+    winget: 'Git.Git'
+  }
+];
+
+async function checkPrerequisites() {
+  const results = {};
+  for (const p of prerequisites) {
+    try {
+      const r = await p.detect();
+      results[p.key] = {
+        label: p.label,
+        required: p.required,
+        installed: !!r.installed,
+        version: r.version || null,
+        canInstall: process.platform === 'win32' && !!p.winget
+      };
+    } catch {
+      results[p.key] = {
+        label: p.label,
+        required: p.required,
+        installed: false,
+        version: null,
+        canInstall: process.platform === 'win32' && !!p.winget
+      };
+    }
+  }
+  return { tools: results, platform: process.platform };
+}
+
+async function installPrerequisite(key) {
+  const spec = prerequisites.find((p) => p.key === key);
+  if (!spec) throw new Error(`Unknown tool: ${key}`);
+  if (!spec.winget) throw new Error(`${spec.label} cannot be installed automatically from the wizard.`);
+  if (process.platform !== 'win32') throw new Error('Automatic install is only supported on Windows (via winget).');
+  await execFileAsync('winget', [
+    'install', '--id', spec.winget,
+    '--exact', '--source', 'winget',
+    '--accept-package-agreements', '--accept-source-agreements',
+    '--silent'
+  ], { shell: useShell, timeout: 15 * 60 * 1000, maxBuffer: 32 * 1024 * 1024 });
+  return true;
+}
 
 const port = Number(process.env.SETUP_PORT) || 3100;
 server.listen(port, '127.0.0.1', () => console.log(`Setup wizard listening on http://localhost:${port}/`));
