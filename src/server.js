@@ -7,7 +7,7 @@ import { scenarios } from './scenarios.js';
 import { mockChat } from './providers/mock.js';
 import { foundryChat } from './providers/foundry.js';
 import { getRecentLogs, subscribeLogs } from './logs.js';
-import { getStatus as getEvalStatus, installToolkit, configureToolkitEnv, saveDataset, runEvaluation, findLatestReport, openReport, subscribeEval, listAccountDeployments, deployModel, RECOMMENDED_MODELS, listToolkitDatasets, stopEvaluation, TOOLKIT_DIR } from './eval.js';
+import { getStatus as getEvalStatus, installToolkit, configureToolkitEnv, saveDataset, readDataset, runEvaluation, findLatestReport, openReport, subscribeEval, listAccountDeployments, deployModel, RECOMMENDED_MODELS, listToolkitDatasets, listSampleDatasets, stopEvaluation, TOOLKIT_DIR } from './eval.js';
 
 const publicDirectory = fileURLToPath(new URL('../public/', import.meta.url));
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -96,6 +96,33 @@ export function createApp({ database = createDatabase(), providerName = process.
 
       if (url.pathname === '/api/eval/status' && request.method === 'GET') return sendJson(response, 200, getEvalStatus());
       if (url.pathname === '/api/eval/toolkit-datasets' && request.method === 'GET') return sendJson(response, 200, { datasets: listToolkitDatasets() });
+      if (url.pathname === '/api/eval/sample-datasets' && request.method === 'GET') return sendJson(response, 200, { datasets: listSampleDatasets() });
+      if (url.pathname === '/api/eval/dataset-content' && request.method === 'GET') {
+        try {
+          const result = readDataset(url.searchParams.get('path'));
+          return sendJson(response, 200, result);
+        } catch (error) {
+          return sendJson(response, 400, { error: error.message });
+        }
+      }
+      if (url.pathname === '/api/eval/dataset-download' && request.method === 'GET') {
+        try {
+          const result = readDataset(url.searchParams.get('path'));
+          const contentType = result.name.endsWith('.csv') ? 'text/csv; charset=utf-8'
+            : result.name.endsWith('.json') ? 'application/json; charset=utf-8'
+            : result.name.endsWith('.jsonl') ? 'application/jsonl; charset=utf-8'
+            : 'text/plain; charset=utf-8';
+          response.writeHead(200, {
+            'content-type': contentType,
+            'content-disposition': `attachment; filename="${result.name.replace(/"/g, '')}"`,
+            'cache-control': 'no-cache'
+          });
+          response.end(result.content);
+          return;
+        } catch (error) {
+          return sendJson(response, 400, { error: error.message });
+        }
+      }
       if (url.pathname === '/api/eval/stream' && request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         const unsubscribe = subscribeEval((entry) => response.write(`data: ${JSON.stringify(entry)}\n\n`));

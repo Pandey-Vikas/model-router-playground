@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
+import { join, dirname, basename, resolve, sep as pathSep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
@@ -210,12 +210,45 @@ export function listToolkitDatasets() {
   } catch { return []; }
 }
 
+export function listSampleDatasets() {
+  const dir = join(rootDir, 'samples');
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir)
+      .filter((n) => /\.(jsonl|csv|json|txt)$/i.test(n))
+      .map((name) => {
+        const path = join(dir, name);
+        let count = null;
+        try {
+          const text = readFileSync(path, 'utf8');
+          const lines = text.split(/\r?\n/).filter((l) => l.trim()).length;
+          count = name.toLowerCase().endsWith('.csv') ? Math.max(0, lines - 1) : lines;
+        } catch { /* leave null */ }
+        return { name, path, count };
+      });
+  } catch { return []; }
+}
+
 export function saveDataset(name, content) {
   mkdirSync(DATASETS_DIR, { recursive: true });
   const path = join(DATASETS_DIR, name);
   writeFileSync(path, content, 'utf8');
   emit(`Dataset saved: ${path}`);
   return path;
+}
+
+export function readDataset(requestedPath) {
+  if (!requestedPath) throw new Error('path is required');
+  const target = resolve(requestedPath);
+  const allowedRoots = [
+    resolve(join(TOOLKIT_DIR, 'datasets')),
+    resolve(DATASETS_DIR),
+    resolve(join(rootDir, 'samples'))
+  ];
+  const ok = allowedRoots.some((root) => target === root || target.startsWith(root + pathSep));
+  if (!ok) throw new Error('Path not in an allowed dataset directory');
+  if (!existsSync(target)) throw new Error('File not found');
+  return { path: target, name: basename(target), content: readFileSync(target, 'utf8') };
 }
 
 export async function runEvaluation({ datasetPath, config = 'configs/quick_test.yaml', dryRun = false, runName = null, db, routerDeployment, baselineDeployment, judgeDeployment }) {

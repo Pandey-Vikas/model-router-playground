@@ -27,20 +27,37 @@ function formatCost(value) {
   return `$${value.toFixed(2)}`;
 }
 
+function formatLatency(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return '0 ms';
+  if (n >= 60000) {
+    const s = n / 1000;
+    const mm = Math.floor(s / 60);
+    const ss = Math.round(s - mm * 60);
+    return `${mm}m ${ss}s`;
+  }
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 1 : 2)} s`;
+  return `${Math.round(n)} ms`;
+}
+
 function nearBottom(element) {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 120;
 }
 
 function renderHistory() {
   elements.historyCount.textContent = state.conversations.length;
-  elements.historyList.innerHTML = state.conversations.map((conversation) => `
+  elements.historyList.innerHTML = state.conversations.map((conversation) => {
+    const prompts = Math.max(0, Math.round((conversation.message_count || 0) / 2));
+    const promptLabel = prompts === 0 ? 'empty' : `${prompts} prompt${prompts === 1 ? '' : 's'}`;
+    return `
     <div class="history-item ${state.conversation?.id === conversation.id ? 'active' : ''}">
       <button class="history-open" type="button" data-conversation="${conversation.id}">
         <strong>${escapeHtml(conversation.title)}</strong>
-        <small>${conversation.message_count} turns · ${escapeHtml(conversation.last_model || 'No model yet')}</small>
+        <small>${promptLabel} · last: ${escapeHtml(conversation.last_model || 'no reply yet')}</small>
       </button>
       <button class="history-delete" type="button" data-delete="${conversation.id}" aria-label="Delete conversation">×</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function messageMarkup(message) {
@@ -137,10 +154,15 @@ function parseImportedDataset(text, filename) {
   const toScenario = (obj, i) => {
     const prompt = String(obj.prompt ?? obj.input ?? obj.text ?? obj.question ?? '').trim();
     if (!prompt) return null;
-    const level = Number(obj.level ?? obj.complexity ?? obj.complexity_level);
+    const rawLevel = Number(obj.level ?? obj.complexity ?? obj.complexity_level);
+    const diff = String(obj.difficulty ?? '').toLowerCase();
+    const difficultyLevel = diff === 'easy' ? 4 : diff === 'medium' ? 12 : diff === 'hard' ? 22 : null;
+    const level = Number.isFinite(rawLevel) && rawLevel >= 1 && rawLevel <= 30
+      ? Math.round(rawLevel)
+      : (difficultyLevel ?? estimateComplexity(prompt));
     return {
-      level: Number.isFinite(level) && level >= 1 && level <= 30 ? Math.round(level) : estimateComplexity(prompt),
-      title: String(obj.title ?? obj.name ?? `Imported #${i + 1}`).slice(0, 80),
+      level,
+      title: String(obj.title ?? obj.name ?? obj.id ?? `Imported #${i + 1}`).slice(0, 80),
       category: String(obj.category ?? 'Imported'),
       prompt,
     };
@@ -184,13 +206,67 @@ function renderImportedDataset() {
   if (elements.runDatasetButton) elements.runDatasetButton.disabled = !has || state.ladderRunning;
 }
 
+async function renderScenarioBundled() {
+  const container = document.getElementById('scenarioBundledList');
+  if (!container) return;
+  try {
+    const [{ datasets: toolkit }, { datasets: samples }] = await Promise.all([
+      api('/api/eval/toolkit-datasets').catch(() => ({ datasets: [] })),
+      api('/api/eval/sample-datasets').catch(() => ({ datasets: [] }))
+    ]);
+    const items = [
+      ...samples.map((d) => ({ ...d, source: 'sample', badge: 'Sample' })),
+      ...toolkit.map((d) => ({ ...d, source: 'toolkit', badge: 'Toolkit' }))
+    ];
+    if (!items.length) {
+      container.innerHTML = '<p class="empty-analytics">No bundled datasets found. Install the toolkit or add a file under <code>samples/</code>.</p>';
+      return;
+    }
+    container.innerHTML = items.map((d) => `
+      <div class="dataset-bundled-item">
+        <div class="dataset-bundled-info">
+          <strong>${escapeHtml(d.name)} <span class="tier tier-${d.source === 'sample' ? 'nano' : 'standard'}">${d.badge}</span></strong>
+          <small>${Number.isFinite(d.count) ? `${d.count} prompt${d.count === 1 ? '' : 's'}` : 'bundled'}</small>
+        </div>
+        <div class="dataset-bundled-actions">
+          <a class="dataset-bundled-download" href="/api/eval/dataset-download?path=${encodeURIComponent(d.path)}" download="${escapeHtml(d.name)}" title="Download to see the format" aria-label="Download ${escapeHtml(d.name)}">⬇</a>
+          <button type="button" data-bundled-path="${escapeHtml(d.path)}" data-bundled-name="${escapeHtml(d.name)}">▶ Run</button>
+        </div>
+      </div>`).join('');
+    container.querySelectorAll('button[data-bundled-path]').forEach((btn) => {
+      btn.addEventListener('click', () => runBundledDataset(btn.dataset.bundledPath, btn.dataset.bundledName, btn));
+    });
+  } catch {
+    container.innerHTML = '<p class="empty-analytics">Could not load bundled datasets.</p>';
+  }
+}
+
+async function runBundledDataset(path, name, button) {
+  if (state.ladderRunning) return;
+  const previousLabel = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = 'loading…'; }
+  try {
+    const { content } = await api('/api/eval/dataset-content?path=' + encodeURIComponent(path));
+    const prompts = parseImportedDataset(content, name);
+    if (!prompts.length) throw new Error('Dataset appears empty or unrecognised.');
+    state.importedDataset = { name, scenarios: prompts };
+    renderImportedDataset();
+    showToast(`Loaded ${prompts.length} prompts from ${name}. Starting…`);
+    await runLadder('imported');
+  } catch (error) {
+    showToast(`Could not run ${name}: ${error.message}`);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = previousLabel || '▶ Run'; }
+  }
+}
+
 function renderAnalytics() {
   const analytics = state.analytics;
   if (!analytics) return;
   const summary = analytics.summary;
   elements.metricGrid.innerHTML = [
     ['Responses', summary.responses], ['Models used', summary.models],
-    ['Total tokens', Number(summary.total_tokens).toLocaleString()], ['Avg latency', `${summary.avg_latency_ms} ms`]
+    ['Total tokens', Number(summary.total_tokens).toLocaleString()], ['Avg latency', formatLatency(summary.avg_latency_ms)]
   ].map(([label, value]) => `<div class="metric"><strong>${value}</strong><small>${label}</small></div>`).join('');
 
   if (summary.responses > 0 && summary.baseline_cost > 0) {
@@ -217,7 +293,7 @@ function renderAnalytics() {
     <div class="trail-row">
       <span class="trail-level">${row.level}</span>
       <span><strong>${escapeHtml(row.model)}</strong> <span class="tier tier-${row.tier}">${row.tier}</span></span>
-      <span>${row.share_pct}% · ${row.avg_tokens} tok · ${row.avg_latency_ms} ms</span>
+      <span>${row.share_pct}% · ${row.avg_tokens} tok · ${formatLatency(row.avg_latency_ms)}</span>
     </div>`).join('') : '<p class="empty-analytics">No complexity evidence captured yet.</p>';
 }
 
@@ -288,7 +364,7 @@ async function sendMessage() {
   try {
     const assistant = await sendPrompt(state.conversation.id, content, level);
     state.conversation.messages.splice(state.conversation.messages.length - 1, 1, assistant);
-    if (state.conversation.title === 'New conversation') state.conversation.title = content.slice(0, 80);
+    if (state.conversation.title === 'New conversation') state.conversation.title = `Manual – ${content.slice(0, 76)}`;
     renderConversation();
     await refreshHistory();
     await refreshAnalytics();
@@ -341,7 +417,7 @@ async function runLadder(mode) {
   let stoppedEarly = false;
   try {
     const label = useImported ? `imported · ${scenarios.length}` : useQuick ? '15 quick' : `${state.scenarios.length} full`;
-    const titlePrefix = useImported ? `Dataset · ${state.importedDataset?.name || 'imported'}` : `Ladder · ${state.routingMode}`;
+    const titlePrefix = useImported ? `Manual – Dataset · ${state.importedDataset?.name || 'imported'}` : `Manual – Ladder · ${state.routingMode}`;
     const created = await api('/api/conversations', { method: 'POST', body: JSON.stringify({ title: `${titlePrefix} · ${label} · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` }) });
     state.conversation = { ...created, messages: [] };
     await refreshHistory();
@@ -352,19 +428,19 @@ async function runLadder(mode) {
       const scenario = scenarios[index];
       if (index > 0) await new Promise((r) => setTimeout(r, perScenarioDelayMs));
       if (state.ladderStopRequested) { stoppedEarly = true; break; }
-      const pending = { role: 'assistant', pending: true, pendingLabel: `Routing L${scenario.level} · ${scenario.title}…` };
+      const pending = { role: 'assistant', pending: true, pendingLabel: `Routing Q${index + 1} · ${scenario.title}…` };
       state.conversation.messages.push({ role: 'user', content: scenario.prompt, complexity_level: scenario.level }, pending);
       renderConversation();
       let assistant = null;
       for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
         if (state.ladderStopRequested) break;
         const suffix = attempt > 0 ? ` · retry ${attempt}/${maxRetries}` : '';
-        elements.ladderProgressText.textContent = `${index + 1} / ${total} · L${scenario.level} ${scenario.title}${suffix}`;
+        elements.ladderProgressText.textContent = `Q${index + 1} of ${total} · ${scenario.title}${suffix}`;
         if (elements.ladderBannerText) elements.ladderBannerText.textContent = `Ladder ${index + 1} / ${total}${suffix}`;
-        if (elements.ladderBannerHint) elements.ladderBannerHint.textContent = `L${scenario.level} · ${scenario.title}`;
+        if (elements.ladderBannerHint) elements.ladderBannerHint.textContent = `Q${index + 1} · ${scenario.title}`;
         elements.ladderBarFill.style.width = `${(index / total) * 100}%`;
         if (attempt > 0) {
-          pending.pendingLabel = `Retry ${attempt}/${maxRetries} · L${scenario.level}…`;
+          pending.pendingLabel = `Retry ${attempt}/${maxRetries} · Q${index + 1}…`;
           renderConversation();
         }
         try {
@@ -452,7 +528,7 @@ async function refreshEvalToolkitDatasets() {
     if (!datasets?.length) { container.innerHTML = ''; return; }
     container.innerHTML = datasets.map((d) => {
       const countLabel = Number.isFinite(d.count) ? `${d.count} prompt${d.count === 1 ? '' : 's'}` : 'bundled';
-      return `<label class="radio-item"><input type="radio" name="evalSource" value="toolkit:${escapeHtml(d.name)}" data-path="${escapeHtml(d.path)}"><span>Toolkit — <code>${escapeHtml(d.name)}</code> <small>(${countLabel})</small></span></label>`;
+      return `<label class="radio-item"><input type="radio" name="evalSource" value="toolkit:${escapeHtml(d.name)}" data-path="${escapeHtml(d.path)}"><span>Toolkit — <code>${escapeHtml(d.name)}</code> <small>(${countLabel})</small></span><a class="radio-download" href="/api/eval/dataset-download?path=${encodeURIComponent(d.path)}" download="${escapeHtml(d.name)}" title="Download to inspect the format" aria-label="Download ${escapeHtml(d.name)}" onclick="event.stopPropagation()">⬇</a></label>`;
     }).join('');
     container.querySelectorAll('input[type="radio"]').forEach((r) => r.addEventListener('change', refreshEvalCount));
   } catch { container.innerHTML = ''; }
@@ -465,7 +541,7 @@ function renderEvalUserDatasets(autoSelectName) {
   if (!container) return;
   if (!evalUserDatasets.length) { container.innerHTML = ''; return; }
   container.innerHTML = evalUserDatasets.map((d) =>
-    `<label class="radio-item"><input type="radio" name="evalSource" value="user:${escapeHtml(d.name)}" data-path="${escapeHtml(d.path)}"${d.name === autoSelectName ? ' checked' : ''}><span>Your dataset — <code>${escapeHtml(d.name)}</code> <small>(${d.count} prompt${d.count === 1 ? '' : 's'})</small></span></label>`
+    `<label class="radio-item"><input type="radio" name="evalSource" value="user:${escapeHtml(d.name)}" data-path="${escapeHtml(d.path)}"${d.name === autoSelectName ? ' checked' : ''}><span>Your dataset — <code>${escapeHtml(d.name)}</code> <small>(${d.count} prompt${d.count === 1 ? '' : 's'})</small></span><a class="radio-download" href="/api/eval/dataset-download?path=${encodeURIComponent(d.path)}" download="${escapeHtml(d.name)}" title="Download" aria-label="Download ${escapeHtml(d.name)}" onclick="event.stopPropagation()">⬇</a></label>`
   ).join('');
   container.querySelectorAll('input[type="radio"]').forEach((r) => r.addEventListener('change', refreshEvalCount));
   if (autoSelectName) refreshEvalCount();
@@ -545,7 +621,7 @@ async function refreshEvalHistory() {
     elements.evalHistory.innerHTML = runs.map((r) => {
       const when = new Date(r.started_at).toLocaleString();
       const duration = r.completed_at ? Math.round((new Date(r.completed_at) - new Date(r.started_at)) / 1000) : null;
-      const title = `${escapeHtml(r.router_deployment || 'router')} vs ${escapeHtml(r.baseline_deployment || 'baseline')} · judge ${escapeHtml(r.judge_deployment || '-')}`;
+      const title = `Auto – ${escapeHtml(r.router_deployment || 'router')} vs ${escapeHtml(r.baseline_deployment || 'baseline')} · judge ${escapeHtml(r.judge_deployment || '-')}`;
       const meta = `${escapeHtml(r.dataset_name || '-')} · ${when}${duration ? ` · ${duration}s` : ''}`;
       let summaryChips = '';
       if (r.summary_json) {
@@ -784,13 +860,19 @@ function renderComparePicker() {
     elements.compareModalBody.innerHTML = '<p class="empty-analytics">No conversations with data yet. Run at least one scenario or the ladder first.</p>';
     return;
   }
+  const available = list.length;
+  const upperBound = Math.min(MAX_COMPARE, available);
+  const hint = available < 2 ? 'Need at least 2 conversations to compare.' : `Pick 2 to ${upperBound} of the ${available} conversations below.`;
   elements.compareModalBody.innerHTML =
-    '<div class="compare-actions"><span class="count" id="compareCount">0 / ' + MAX_COMPARE + ' selected · pick 2 to ' + MAX_COMPARE + '</span><button type="button" id="compareShow" disabled>Show comparison</button></div>' +
-    '<div class="compare-picker">' + list.map((c) => `
+    '<div class="compare-actions"><span class="count" id="compareCount">' + hint + '</span><button type="button" id="compareShow" disabled>Show comparison</button></div>' +
+    '<div class="compare-picker">' + list.map((c) => {
+      const prompts = Math.max(1, Math.round((c.message_count || 0) / 2));
+      return `
       <label class="compare-pick" data-id="${escapeHtml(c.id)}">
         <input type="checkbox" data-id="${escapeHtml(c.id)}">
-        <div style="flex:1"><strong>${escapeHtml(c.title || 'Untitled')}</strong><small>${c.message_count} messages · ${new Date(c.updated_at).toLocaleString()}</small></div>
-      </label>`).join('') + '</div>';
+        <div style="flex:1"><strong>${escapeHtml(c.title || 'Untitled')}</strong><small>${prompts} prompt${prompts === 1 ? '' : 's'} · ${new Date(c.updated_at).toLocaleString()}</small></div>
+      </label>`;
+    }).join('') + '</div>';
   const showBtn = document.getElementById('compareShow');
   const countEl = document.getElementById('compareCount');
   elements.compareModalBody.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
@@ -803,7 +885,10 @@ function renderComparePicker() {
         compareSelection.delete(id);
       }
       cb.closest('.compare-pick').classList.toggle('selected', cb.checked);
-      countEl.textContent = `${compareSelection.size} / ${MAX_COMPARE} selected · pick 2 to ${MAX_COMPARE}`;
+      const count = compareSelection.size;
+      countEl.textContent = count === 0
+        ? hint
+        : `${count} selected · ${count < 2 ? 'pick at least 2 to compare' : count < upperBound ? `add up to ${upperBound - count} more` : 'ready to compare'}`;
       showBtn.disabled = compareSelection.size < 2;
     });
   });
@@ -926,7 +1011,7 @@ function renderComparisonTable(results) {
             : '';
           return `
           <div class="cell-model"><strong>${escapeHtml(row.model)}</strong> <span class="tier tier-${row.tier}">${row.tier}</span></div>
-          <small class="cell-meta">${row.avg_tokens} tok · ${row.avg_latency_ms} ms</small>
+          <small class="cell-meta">${row.avg_tokens} tok · ${formatLatency(row.avg_latency_ms)}</small>
           ${quality}
         `;
         }).join('<hr>') + '</td>';
@@ -975,7 +1060,7 @@ function renderComparisonColumn({ conversation, analytics }) {
     <div class="trail-row">
       <span class="trail-level">${row.level}</span>
       <span><strong>${escapeHtml(row.model)}</strong> <span class="tier tier-${row.tier}">${row.tier}</span></span>
-      <span>${row.share_pct}% · ${row.avg_tokens} tok · ${row.avg_latency_ms} ms</span>
+      <span>${row.share_pct}% · ${row.avg_tokens} tok · ${formatLatency(row.avg_latency_ms)}</span>
     </div>`).join('') : '<p class="empty-analytics">No trail.</p>';
   return `<section class="compare-col">
     <p class="eyebrow">${escapeHtml(new Date(conversation.updated_at).toLocaleString())}</p>
@@ -984,7 +1069,7 @@ function renderComparisonColumn({ conversation, analytics }) {
     <div class="metric-row"><span>Responses</span><strong>${s.responses}</strong></div>
     <div class="metric-row"><span>Models used</span><strong>${s.models}</strong></div>
     <div class="metric-row"><span>Total tokens</span><strong>${Number(s.total_tokens).toLocaleString()}</strong></div>
-    <div class="metric-row"><span>Avg latency</span><strong>${s.avg_latency_ms} ms</strong></div>
+    <div class="metric-row"><span>Avg latency</span><strong>${formatLatency(s.avg_latency_ms)}</strong></div>
     <div class="metric-row"><span>Actual cost</span><strong>${formatCost(s.actual_cost)}</strong></div>
     <div class="metric-row"><span>Baseline (${escapeHtml(s.baseline_model || 'gpt-5')})</span><strong>${formatCost(s.baseline_cost)}</strong></div>
     <div class="metric-row"><span>Saved</span><strong>${formatCost(Math.max(0, s.savings))} (${(s.savings_pct || 0).toFixed(0)}%)</strong></div>
@@ -1027,6 +1112,27 @@ function wireModeSelector() {
   refreshModeBanner(singleDeployment, fallback);
 }
 
+const THEME_STORAGE_KEY = 'routelab.theme';
+const VALID_THEMES = ['light', 'dark', 'cyber'];
+
+function applyTheme(theme) {
+  const normalized = VALID_THEMES.includes(theme) ? theme : 'light';
+  document.documentElement.setAttribute('data-theme', normalized);
+  document.querySelectorAll('.theme-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.theme === normalized);
+    btn.setAttribute('aria-pressed', btn.dataset.theme === normalized ? 'true' : 'false');
+  });
+  try { localStorage.setItem(THEME_STORAGE_KEY, normalized); } catch { /* ignore */ }
+}
+
+function wireThemeSwitcher() {
+  const stored = (() => { try { return localStorage.getItem(THEME_STORAGE_KEY); } catch { return null; } })();
+  applyTheme(stored || 'light');
+  document.querySelectorAll('.theme-btn').forEach((btn) => {
+    btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
+  });
+}
+
 function refreshModeBanner(forceSingle, fallback) {
   if (!elements.modeBanner) return;
   const deployment = state.deployments[state.routingMode];
@@ -1036,12 +1142,23 @@ function refreshModeBanner(forceSingle, fallback) {
   const distinct = new Set([balanced, cost, quality].filter(Boolean));
   const isSingle = forceSingle ?? distinct.size <= 1;
   if (state.provider !== 'foundry') { elements.modeBanner.hidden = true; return; }
+  const modeLabel = (state.routingMode || 'balanced').replace(/^\w/, (c) => c.toUpperCase());
+  const modeClass = `tone-${state.routingMode || 'balanced'}`;
   if (isSingle) {
     elements.modeBanner.hidden = false;
-    elements.modeBanner.innerHTML = `You have one deployment configured (<b>${escapeHtml(deployment || fallback || 'unknown')}</b>). All three modes will hit the same deployment. To see real Balanced/Cost/Quality differences, create three deployments in Foundry with different routing modes and set <code>MODEL_ROUTER_DEPLOYMENT_BALANCED</code>, <code>_COST</code>, and <code>_QUALITY</code> in .env.`;
+    elements.modeBanner.classList.add('mode-banner-warn');
+    const single = deployment || fallback || 'unknown';
+    elements.modeBanner.innerHTML = `
+      <div class="mode-banner-item"><span class="mode-banner-label">Single deployment</span><span class="mode-banner-value">${escapeHtml(single)}</span></div>
+      <span class="mode-banner-hint">All three modes hit the same deployment. Set <code>MODEL_ROUTER_DEPLOYMENT_BALANCED</code>, <code>_COST</code>, <code>_QUALITY</code> in <code>.env</code> to route separately.</span>`;
   } else {
     elements.modeBanner.hidden = false;
-    elements.modeBanner.innerHTML = `Current mode: <b>${escapeHtml(state.routingMode)}</b> → deployment <b>${escapeHtml(deployment || 'not configured')}</b>. Switch pills above to route to a different deployment.`;
+    elements.modeBanner.classList.remove('mode-banner-warn');
+    elements.modeBanner.innerHTML = `
+      <div class="mode-banner-item"><span class="mode-banner-label">Mode</span><span class="mode-banner-value ${modeClass}">${escapeHtml(modeLabel)}</span></div>
+      <span class="mode-banner-arrow">→</span>
+      <div class="mode-banner-item"><span class="mode-banner-label">Deployment</span><span class="mode-banner-value">${escapeHtml(deployment || 'not configured')}</span></div>
+      <span class="mode-banner-hint">Switch the pills above to route to a different deployment.</span>`;
   }
 }
 
@@ -1134,10 +1251,12 @@ try {
   const isFoundry = state.provider === 'foundry';
   elements.providerName.textContent = isFoundry ? 'Foundry router' : 'Mock router';
   elements.providerHint.textContent = isFoundry ? 'Live endpoint connected' : 'Ready without an endpoint';
-  elements.headerProvider.textContent = isFoundry ? 'LIVE FOUNDRY' : 'SIMULATION';
+  if (elements.headerProvider) elements.headerProvider.textContent = isFoundry ? 'LIVE FOUNDRY' : 'SIMULATION';
   renderHistory(); renderScenarios(); renderAnalytics(); renderConversation();
   renderImportedDataset();
+  renderScenarioBundled();
   wireModeSelector();
+  wireThemeSwitcher();
   elements.logsClear?.addEventListener('click', () => { logEntries.length = 0; renderLogs(); });
   elements.clearAllButton?.addEventListener('click', async () => {
     if (!confirm('Delete all conversations and analytics? This cannot be undone.')) return;
