@@ -71,8 +71,6 @@ const state = {
   deploymentBalanced: null,
   deploymentCost: null,
   deploymentQuality: null,
-  authMode: 'entra',
-  apiKey: '',
   apiVersion: '2024-10-21'
 };
 
@@ -653,58 +651,20 @@ function buildEnvPreview() {
   if (state.deploymentBalanced) lines.push('MODEL_ROUTER_DEPLOYMENT_BALANCED=' + state.deploymentBalanced);
   if (state.deploymentCost) lines.push('MODEL_ROUTER_DEPLOYMENT_COST=' + state.deploymentCost);
   if (state.deploymentQuality) lines.push('MODEL_ROUTER_DEPLOYMENT_QUALITY=' + state.deploymentQuality);
-  if (state.authMode === 'key' && state.apiKey) lines.push('AZURE_OPENAI_API_KEY=' + state.apiKey);
   return lines.join('\n');
 }
 
 async function renderLaunch() {
-  const forceEntra = state.foundry.disableLocalAuth;
-  if (forceEntra) state.authMode = 'entra';
   panel.innerHTML =
     '<h2>Review and launch</h2>' +
-    '<p class="sub">The wizard will write <code>.env</code>, start the app, and open it in this tab.</p>' +
-    '<label>Authentication</label>' +
-    '<label class="radio"><input type="radio" name="auth" value="entra"' + (state.authMode === 'entra' ? ' checked' : '') + '> Microsoft Entra ID (uses your Azure CLI login)</label>' +
-    '<label class="radio"><input type="radio" name="auth" value="key"' + (state.authMode === 'key' ? ' checked' : '') + (forceEntra ? ' disabled' : '') + '> API key' + (forceEntra ? ' (disabled on this resource)' : '') + '</label>' +
-    '<div id="keyBox" style="display:' + (state.authMode === 'key' ? 'block' : 'none') + '">' +
-      '<label for="key">API key</label>' +
-      '<input type="password" id="key" value="' + escapeHtml(state.apiKey) + '" placeholder="Paste key, or fetch from Azure">' +
-      '<button class="secondary" id="fetchKey" style="margin-top:8px">Fetch key from Azure</button>' +
-    '</div>' +
+    '<p class="sub">The wizard will write <code>.env</code>, start the app, and open it in this tab. Authentication is <b>Microsoft Entra ID</b> via your Azure CLI login — no API keys are used.</p>' +
     '<label>.env preview</label>' +
     '<pre id="preview"></pre>' +
     '<div class="footer"><button class="secondary" onclick="setStep(5)">Back</button><button id="launch">Save and launch</button></div>' +
     '<div id="launchStatus" class="status info"></div>';
 
-  function refresh() {
-    state.authMode = document.querySelector('input[name=auth]:checked').value;
-    document.getElementById('keyBox').style.display = state.authMode === 'key' ? 'block' : 'none';
-    document.getElementById('preview').textContent = buildEnvPreview();
-  }
-  document.querySelectorAll('input[name=auth]').forEach(r => r.onchange = refresh);
-  const keyInput = document.getElementById('key');
-  if (keyInput) keyInput.addEventListener('input', e => { state.apiKey = e.target.value; refresh(); });
-  const fetchBtn = document.getElementById('fetchKey');
-  if (fetchBtn) fetchBtn.addEventListener('click', async () => {
-    const status = document.getElementById('launchStatus');
-    status.innerHTML = '<span class="spinner"></span>Fetching key…';
-    try {
-      const query = '?name=' + encodeURIComponent(state.foundry.name) + '&resourceGroup=' + encodeURIComponent(state.foundry.resourceGroup);
-      const result = await api('/api/keys' + query);
-      if (result.key) {
-        state.apiKey = result.key;
-        document.getElementById('key').value = result.key;
-        refresh();
-        status.innerHTML = '<span class="ok">Key fetched.</span>';
-      } else {
-        status.innerHTML = '<span class="err">No key returned. Local authentication is likely disabled — use Entra ID instead.</span>';
-      }
-    } catch (e) {
-      status.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
-    }
-  });
+  document.getElementById('preview').textContent = buildEnvPreview();
   document.getElementById('launch').onclick = doLaunch;
-  refresh();
 }
 
 async function doLaunch() {
@@ -721,12 +681,13 @@ async function doLaunch() {
       provider: 'foundry',
       port: 3000,
       endpoint: state.foundry.endpoint.replace(/\/$/, ''),
+      foundryName: state.foundry.name,
+      foundryResourceGroup: state.foundry.resourceGroup,
       deployment: state.deployment,
       deploymentBalanced: state.deploymentBalanced,
       deploymentCost: state.deploymentCost,
       deploymentQuality: state.deploymentQuality,
-      apiVersion: state.apiVersion,
-      apiKey: state.authMode === 'key' ? state.apiKey : ''
+      apiVersion: state.apiVersion
     };
     const { url } = await api('/api/save-and-launch', { method: 'POST', body: payload });
     status.innerHTML = '<span class="spinner"></span>Waiting for the app to come online…';

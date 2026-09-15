@@ -177,7 +177,7 @@
             <summary>How to run the evaluation (first time, ~15 min)</summary>
             <ol>
               <li><b>Install toolkit</b> — click below. One-time <code>git clone</code> + <code>pip install</code>. Needs Python 3.9+ and Git. RouteLab auto-patches the toolkit's client for Entra ID.</li>
-              <li><b>Auth</b> — already handled. Setup wizard signed you in and wrote <code>.env</code>. RouteLab reuses that session (Entra ID via <code>az</code>, or <code>AZURE_OPENAI_API_KEY</code> if you provided one). Check the Auth chip below — only re-run <code>az login</code> if the token has expired.</li>
+              <li><b>Auth</b> — already handled. Setup wizard signed you in and wrote <code>.env</code>. RouteLab reuses that Microsoft Entra ID session (via <code>az</code>). Check the Auth chip below — only re-run <code>az login</code> if the token has expired.</li>
               <li><b>Deploy baseline &amp; judge</b> — expand "Deploy a recommended model" below. Deploy <code>gpt-5.6-luna</code> if you want a strong judge; <code>gpt-5.2</code> is a solid baseline.</li>
               <li><b>Pick dataset</b> — Built-in 15/30 for a quick benchmark, a bundled toolkit dataset, or <b>Upload your own dataset</b> (JSONL / JSON / CSV / plain text) — RouteLab auto-fills missing <code>id</code>s.</li>
               <li><b>Pick router / baseline / judge</b> from the dropdowns.</li>
