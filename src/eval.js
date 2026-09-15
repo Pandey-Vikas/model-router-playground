@@ -99,11 +99,17 @@ export async function installToolkit() {
     await runStreamed('git', ['fetch', '--depth', '1', 'origin', 'HEAD'], { cwd: TOOLKIT_DIR, nonFatal: true });
     await runStreamed('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: TOOLKIT_DIR, nonFatal: true });
   }
-  const py = process.platform === 'win32' ? 'python' : 'python3';
-  await runStreamed(py, ['-m', 'venv', '.venv'], { cwd: TOOLKIT_DIR });
   const venvPy = process.platform === 'win32'
     ? join(TOOLKIT_DIR, '.venv', 'Scripts', 'python.exe')
     : join(TOOLKIT_DIR, '.venv', 'bin', 'python');
+  if (existsSync(venvPy)) {
+    // Reusing an existing venv avoids "Permission denied: python.exe" on Windows
+    // when the venv is already activated in another shell.
+    emit('Reusing existing .venv (delete eval-toolkit/.venv to force a rebuild).');
+  } else {
+    const py = process.platform === 'win32' ? 'python' : 'python3';
+    await runStreamed(py, ['-m', 'venv', '.venv'], { cwd: TOOLKIT_DIR });
+  }
   await runStreamed(venvPy, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip'], { cwd: TOOLKIT_DIR });
   await runStreamed(venvPy, ['-m', 'pip', 'install', '--quiet', '-e', '.'], { cwd: TOOLKIT_DIR });
   patchClientForEntra();
