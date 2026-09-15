@@ -1,4 +1,13 @@
-import { tierFor, calculateCost, BASELINE_MODEL, priceFor } from '/pricing.js';
+import { tierFor, calculateCost, BASELINE_MODEL, priceFor, PRICING } from '/pricing.js';
+
+const BASELINE_STORAGE_KEY = 'routelab.baselineModel';
+function loadBaselineModel() {
+  try { return localStorage.getItem(BASELINE_STORAGE_KEY) || BASELINE_MODEL; } catch { return BASELINE_MODEL; }
+}
+function saveBaselineModel(name) {
+  try { localStorage.setItem(BASELINE_STORAGE_KEY, name); } catch { /* ignore */ }
+}
+let currentBaselineModel = loadBaselineModel();
 
 const state = { conversations: [], conversation: null, scenarios: [], provider: 'mock', analytics: null, ladderRunning: false, ladderStopRequested: false, routingMode: 'balanced', deployments: {}, importedDataset: null };
 const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map((element) => [element.id, element]));
@@ -303,9 +312,53 @@ async function refreshHistory() {
 }
 
 async function refreshAnalytics() {
-  const query = state.conversation?.id ? `?conversationId=${encodeURIComponent(state.conversation.id)}` : '';
+  const params = new URLSearchParams();
+  if (state.conversation?.id) params.set('conversationId', state.conversation.id);
+  if (currentBaselineModel) params.set('baseline', currentBaselineModel);
+  const query = params.toString() ? `?${params.toString()}` : '';
   state.analytics = await api(`/api/analytics${query}`);
   renderAnalytics();
+}
+
+function populateBaselineSelect() {
+  const sel = document.getElementById('baselineSelect');
+  if (!sel) return;
+  const keys = Object.keys(PRICING).sort();
+  sel.innerHTML = keys.map((k) => {
+    const label = `${k} (in $${PRICING[k].input.toFixed(2)} / out $${PRICING[k].output.toFixed(2)} per 1M)`;
+    return `<option value="${k}"${k === currentBaselineModel ? ' selected' : ''}>${label}</option>`;
+  }).join('');
+  sel.onchange = async () => {
+    currentBaselineModel = sel.value;
+    saveBaselineModel(currentBaselineModel);
+    try { await refreshAnalytics(); } catch { /* ignore */ }
+  };
+}
+
+async function refreshLivePricing(button) {
+  const hint = document.getElementById('baselinePricingHint');
+  const previousText = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = '… fetching Azure prices'; }
+  try {
+    const data = await api('/api/pricing/live');
+    if (!Array.isArray(data.models) || !data.models.length) throw new Error('No matching models returned');
+    let updated = 0;
+    for (const m of data.models) {
+      const target = Object.keys(PRICING).find((k) => k.toLowerCase() === m.key || k.toLowerCase().includes(m.key));
+      if (!target) continue;
+      if (Number.isFinite(m.input)) { PRICING[target].input = Number(m.input.toFixed(4)); updated++; }
+      if (Number.isFinite(m.output)) { PRICING[target].output = Number(m.output.toFixed(4)); updated++; }
+    }
+    if (hint) hint.innerHTML = `Live prices refreshed at ${new Date(data.fetchedAt).toLocaleTimeString()} — ${updated} rate${updated === 1 ? '' : 's'} updated from <a href="${data.source}" target="_blank" rel="noopener">Azure Retail Prices API</a>. Verify on <a href="https://azure.microsoft.com/pricing/details/cognitive-services/openai-service/" target="_blank" rel="noopener">Microsoft's page</a>.`;
+    populateBaselineSelect();
+    await refreshAnalytics();
+    showToast(`Refreshed ${updated} price entries from Azure.`);
+  } catch (error) {
+    if (hint) hint.innerHTML = `Could not fetch live prices: ${escapeHtml(error.message)}. Falling back to the built-in catalog. Manual check: <a href="https://azure.microsoft.com/pricing/details/cognitive-services/openai-service/" target="_blank" rel="noopener">Microsoft pricing page</a>.`;
+    showToast('Live pricing refresh failed: ' + error.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = previousText || '↻ Live prices'; }
+  }
 }
 
 async function createConversation() {
@@ -1266,6 +1319,8 @@ try {
     } catch (error) { showToast(error.message); }
   });
   elements.compareButton?.addEventListener('click', openComparePicker);
+  populateBaselineSelect();
+  document.getElementById('refreshPricingButton')?.addEventListener('click', (event) => refreshLivePricing(event.currentTarget));
   elements.compareClose?.addEventListener('click', () => { elements.compareModal.hidden = true; });
   elements.compareModal?.addEventListener('click', (event) => { if (event.target === elements.compareModal) elements.compareModal.hidden = true; });
   elements.changeEnvButton?.addEventListener('click', async () => {

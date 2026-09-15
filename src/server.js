@@ -40,6 +40,44 @@ function parseJudgeJson(text) {
   }
 }
 
+// Best-effort fetch from Azure's public Retail Prices API. Returns per-model input/output USD-per-1M-tokens
+// alongside the SKU/meter name so the UI can show provenance. Silently drops rows we cannot parse.
+async function fetchAzureRetailPricing() {
+  const filter = "serviceName eq 'Cognitive Services' and priceType eq 'Consumption' and currencyCode eq 'USD'";
+  const url = `https://prices.azure.com/api/retail/prices?$filter=${encodeURIComponent(filter)}`;
+  const rows = [];
+  let next = url;
+  let pages = 0;
+  while (next && pages < 20) {
+    const res = await fetch(next, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`Azure Retail Prices API returned HTTP ${res.status}`);
+    const body = await res.json();
+    if (Array.isArray(body.Items)) rows.push(...body.Items);
+    next = body.NextPageLink || null;
+    pages++;
+  }
+  // Map to a compact catalog keyed by lower-cased normalized name.
+  const models = {};
+  const modelHint = /(gpt-[\d.]+[a-z-]*|claude-[a-z0-9-]+|grok-[\d.]+[a-z-]*|deepseek[-a-z0-9.]*|llama-[\d.]+[a-z0-9-]*|o[3-9]-[a-z-]+|phi-[\d.]+[a-z-]*)/i;
+  for (const r of rows) {
+    const meter = String(r.meterName || '').toLowerCase();
+    const isInput = /(input|prompt)/.test(meter) && !/(cached|batch)/.test(meter);
+    const isOutput = /(output|completion)/.test(meter) && !/(cached|batch)/.test(meter);
+    if (!isInput && !isOutput) continue;
+    const productName = String(r.productName || '').toLowerCase();
+    const hint = modelHint.exec(productName) || modelHint.exec(meter);
+    if (!hint) continue;
+    const key = hint[1].toLowerCase();
+    if (!models[key]) models[key] = { key, input: null, output: null, sample: { productName: r.productName, meterName: r.meterName, region: r.armRegionName, unitOfMeasure: r.unitOfMeasure } };
+    // Azure lists per-1K tokens usually; normalise to per-1M for the app's PRICING catalog.
+    const per1k = Number(r.unitPrice) || 0;
+    const perMillion = /1k tokens|per 1k/i.test(r.unitOfMeasure || '') ? per1k * 1000 : per1k;
+    if (isInput && (models[key].input == null || perMillion < models[key].input)) models[key].input = perMillion;
+    if (isOutput && (models[key].output == null || perMillion < models[key].output)) models[key].output = perMillion;
+  }
+  return Object.values(models).filter((m) => m.input != null || m.output != null);
+}
+
 export function createApp({ database = createDatabase(), providerName = process.env.MODEL_PROVIDER || 'mock' } = {}) {
   const provider = providerName === 'foundry' ? foundryChat : mockChat;
   const server = createHttpServer(async (request, response) => {
@@ -60,7 +98,15 @@ export function createApp({ database = createDatabase(), providerName = process.
         const body = await readJson(request);
         return sendJson(response, 201, database.createConversation(typeof body.title === 'string' ? body.title : undefined));
       }
-      if (url.pathname === '/api/analytics' && request.method === 'GET') return sendJson(response, 200, database.getAnalytics(url.searchParams.get('conversationId') || undefined));
+      if (url.pathname === '/api/analytics' && request.method === 'GET') return sendJson(response, 200, database.getAnalytics(url.searchParams.get('conversationId') || undefined, url.searchParams.get('baseline') || undefined));
+      if (url.pathname === '/api/pricing/live' && request.method === 'GET') {
+        try {
+          const models = await fetchAzureRetailPricing();
+          return sendJson(response, 200, { models, source: 'https://prices.azure.com/api/retail/prices', fetchedAt: new Date().toISOString() });
+        } catch (error) {
+          return sendJson(response, 500, { error: String(error?.message || error) });
+        }
+      }
       if (url.pathname === '/api/data' && request.method === 'DELETE') { database.clearAll(); return sendJson(response, 200, { ok: true }); }
 
       if (url.pathname === '/api/setup/launch' && request.method === 'POST') {

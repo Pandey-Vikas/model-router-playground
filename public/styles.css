@@ -343,6 +343,15 @@ button.meta-chip.cost:hover { background: var(--coral-soft); }
 
 /* Cost card in analytics. */
 .cost-card { margin: 6px 0 22px; padding: 14px; border: 1px solid var(--line); background: var(--surface); }
+.baseline-picker { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; margin: 12px 0; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.baseline-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.baseline-picker .eyebrow { margin: 0; }
+.baseline-picker select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--ink); font: 500 12px "Cascadia Mono", Consolas, monospace; }
+.baseline-hint { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.baseline-hint a { color: var(--green); }
+.baseline-refresh { padding: 5px 10px; background: var(--paper); color: var(--muted); border: 1px solid var(--line); border-radius: 3px; font: 700 9px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; }
+.baseline-refresh:hover { background: var(--green-soft); color: var(--green); border-color: var(--green); }
+.baseline-refresh:disabled { opacity: 0.6; cursor: wait; }
 .cost-headline { display: flex; justify-content: space-between; align-items: center; }
 .cost-headline strong { color: var(--green); font: 500 22px "Cascadia Mono", Consolas, monospace; }
 .cost-bar { height: 8px; margin: 12px 0 10px; background: linear-gradient(to right, var(--coral) 0%, var(--coral) 100%); border-radius: 2px; overflow: hidden; position: relative; }

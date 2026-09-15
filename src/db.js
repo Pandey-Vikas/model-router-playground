@@ -138,9 +138,10 @@ export function createDatabase(filename = process.env.DATABASE_PATH || './data/r
     clearAll() {
       database.prepare('DELETE FROM conversations').run();
     },
-    getAnalytics(conversationId) {
+    getAnalytics(conversationId, baselineModel) {
       const where = `role = 'assistant'${conversationId ? ' AND conversation_id = @conversationId' : ''}`;
       const params = conversationId ? { conversationId } : {};
+      const effectiveBaseline = baselineModel || BASELINE_MODEL;
       const summaryRow = database.prepare(`
         SELECT COUNT(*) AS responses, COUNT(DISTINCT routed_model) AS models,
           COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(ROUND(AVG(latency_ms)), 0) AS avg_latency_ms
@@ -168,7 +169,7 @@ export function createDatabase(filename = process.env.DATABASE_PATH || './data/r
       let baselineCost = 0;
       const models = modelRows.map((row) => {
         const cost = calculateCost(row.model, row.prompt_tokens, row.completion_tokens);
-        const baseline = calculateCost(BASELINE_MODEL, row.prompt_tokens, row.completion_tokens);
+        const baseline = calculateCost(effectiveBaseline, row.prompt_tokens, row.completion_tokens);
         actualCost += cost;
         baselineCost += baseline;
         return { ...row, tier: tierFor(row.model), cost, baseline_cost: baseline };
@@ -183,7 +184,7 @@ export function createDatabase(filename = process.env.DATABASE_PATH || './data/r
           baseline_cost: baselineCost,
           savings,
           savings_pct: savingsPct,
-          baseline_model: BASELINE_MODEL
+          baseline_model: effectiveBaseline
         },
         models,
         complexity: complexityRows.map((row) => ({ ...row, tier: tierFor(row.model) }))

@@ -143,6 +143,14 @@
           <div class="panel-intro"><p class="eyebrow">LIVE TELEMETRY</p><h2>Routing evidence</h2><p>Scoped to the current conversation. Create or open another conversation to see its own evidence.</p></div>
           <div class="logs-toolbar"><span>Reset all conversations and analytics</span><button type="button" class="danger-button" id="clearAllButton">Clear all data</button></div>
           <div class="logs-toolbar"><span>Compare multiple conversations side by side</span><button type="button" class="compare-button" id="compareButton">Compare…</button></div>
+          <div class="baseline-picker">
+            <div class="baseline-picker-head">
+              <label for="baselineSelect"><span class="eyebrow">COMPARE ALL COSTS AGAINST</span></label>
+              <button type="button" class="baseline-refresh" id="refreshPricingButton" title="Fetch live prices from the Azure Retail Prices API">↻ Live prices</button>
+            </div>
+            <select id="baselineSelect"></select>
+            <small class="baseline-hint" id="baselinePricingHint">Rates are approximate USD per 1M tokens. Verify at <a href="https://azure.microsoft.com/pricing/details/cognitive-services/openai-service/" target="_blank" rel="noopener">Azure Foundry Models pricing</a>.</small>
+          </div>
           <div class="metric-grid" id="metricGrid"></div>
           <div class="cost-card" id="costCard" hidden>
             <div class="cost-headline"><span class="eyebrow">COST vs BASELINE</span><strong id="savingsPct">0%</strong></div>
