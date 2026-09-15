@@ -612,10 +612,25 @@ async function renderDeployment() {
     const costIdx = findBy('cost') >= 0 ? findBy('cost') : balancedIdx;
     const qualityIdx = findBy('quality') >= 0 ? findBy('quality') : balancedIdx;
     const optionsFor = (selectedIdx) => deps.map((d, i) => '<option value="' + escapeHtml(d.name) + '"' + (i === selectedIdx ? ' selected' : '') + '>' + escapeHtml(d.name) + ' — ' + escapeHtml(d.model || 'unknown') + ' · v' + escapeHtml(d.version || 'unknown') + '</option>').join('');
+    // Build a "created router deployments" checklist so users see a green tick for each of the three canonical
+    // mode names right after the batch deploy step, even when we've moved on to the assignment view.
+    const targets = [
+      { label: 'mr-balanced', mode: 'balanced' },
+      { label: 'mr-cost', mode: 'cost' },
+      { label: 'mr-quality', mode: 'quality' }
+    ];
+    const summaryRows = targets.map((t) => {
+      const found = deps.find((d) => d.name.toLowerCase() === t.label.toLowerCase());
+      return found
+        ? '<label class="prereq-row"><div class="prereq-info"><strong>' + t.label + '</strong><small>' + escapeHtml(found.model || 'model-router') + ' · v' + escapeHtml(found.version || 'unknown') + ' · mode = ' + t.mode + '</small></div><span class="prereq-ok" title="Deployment created">&#10004;</span></label>'
+        : '<label class="prereq-row"><div class="prereq-info"><strong>' + t.label + '</strong><small>Not deployed — use the Deploy step or Foundry Portal to add it (mode = ' + t.mode + ').</small></div><span class="prereq-missing" title="Not deployed">&#10008;</span></label>';
+    }).join('');
+    const summaryBlock = '<div style="display:flex;flex-direction:column;gap:8px;margin:14px 0">' + summaryRows + '</div>';
     panel.innerHTML =
       '<h2>Assign deployments to router modes</h2>' +
       '<p class="sub">Each mode routes to its own deployment. If you only have one, leave all three the same and the app will show a banner explaining why.</p>' +
       accessBlock +
+      summaryBlock +
       help +
       '<label for="depBalanced">Balanced deployment</label>' +
       '<select id="depBalanced">' + optionsFor(balancedIdx) + '</select>' +
