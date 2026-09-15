@@ -23,6 +23,29 @@ async function az(args, { timeoutMs = 120_000 } = {}) {
   return stdout.trim() ? JSON.parse(stdout) : null;
 }
 
+async function ensureFoundryProject({ subscriptionId, resourceGroup, account, projectName, location }) {
+  const tokenObj = await az(['account', 'get-access-token', '--resource', 'https://management.azure.com']);
+  const token = tokenObj?.accessToken;
+  if (!token) throw new Error('Could not acquire ARM access token for project creation');
+  const base = `https://management.azure.com/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.CognitiveServices/accounts/${encodeURIComponent(account)}/projects`;
+  const apiVersion = '2025-04-01-preview';
+  const listRes = await fetch(`${base}?api-version=${apiVersion}`, { headers: { authorization: `Bearer ${token}` } });
+  if (listRes.ok) {
+    const listBody = await listRes.json();
+    const existing = (listBody.value || [])[0];
+    if (existing) return { name: existing.name, id: existing.id, created: false };
+  }
+  const target = projectName || 'default-project';
+  const putRes = await fetch(`${base}/${encodeURIComponent(target)}?api-version=${apiVersion}`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ location, identity: { type: 'SystemAssigned' }, properties: {} })
+  });
+  const putBody = await putRes.json().catch(() => ({}));
+  if (!putRes.ok) throw new Error(putBody.error?.message || `Project create failed (${putRes.status})`);
+  return { name: putBody.name?.split('/').pop() || target, id: putBody.id, created: true };
+}
+
 let activeLoginChild = null;
 let loginState = { state: 'idle' };
 
@@ -313,17 +336,39 @@ const server = createServer(async (request, response) => {
           '--custom-domain', name,
           '--yes'
         ]);
+        // Create a default Foundry project so the account is visible in the new Foundry portal (ai.azure.com)
+        // and so project-scoped roles (Azure AI User / Azure AI Project Manager) can be assigned.
+        let project = null;
+        try {
+          const sub = await az(['account', 'show']);
+          if (sub?.id) {
+            project = await ensureFoundryProject({
+              subscriptionId: sub.id,
+              resourceGroup,
+              account: name,
+              projectName: 'default-project',
+              location: created.location || location
+            });
+          }
+        } catch (e) { /* project best-effort — account still usable via classic path */ }
         // Grant the signed-in user the minimum roles needed for Entra ID chat completions to work immediately.
-        // Cognitive Services User = read config; Cognitive Services OpenAI User = call chat completions.
-        // Azure AI User / Project Manager are the newer Foundry roles but may not exist in every tenant.
+        // Account-scope: Cognitive Services User + OpenAI User. Project-scope: Azure AI User + Project Manager.
         try {
           const me = await az(['ad', 'signed-in-user', 'show']);
           const oid = me?.id;
           const sub = await az(['account', 'show']);
-          const scope = `/subscriptions/${sub?.id}/resourceGroups/${resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${name}`;
+          const accountScope = `/subscriptions/${sub?.id}/resourceGroups/${resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${name}`;
+          const projectScope = project?.name ? `${accountScope}/projects/${project.name}` : null;
           if (oid && sub?.id) {
-            const roles = ['Cognitive Services User', 'Cognitive Services OpenAI User', 'Azure AI User', 'Azure AI Project Manager'];
-            for (const role of roles) {
+            const grants = [
+              { role: 'Cognitive Services User', scope: accountScope },
+              { role: 'Cognitive Services OpenAI User', scope: accountScope },
+              ...(projectScope ? [
+                { role: 'Azure AI User', scope: projectScope },
+                { role: 'Azure AI Project Manager', scope: projectScope }
+              ] : [])
+            ];
+            for (const { role, scope } of grants) {
               try {
                 await az(['role', 'assignment', 'create', '--assignee-object-id', oid, '--assignee-principal-type', 'User', '--role', role, '--scope', scope]);
               } catch { /* role may already exist or not be defined in this tenant — ignore */ }
@@ -335,6 +380,7 @@ const server = createServer(async (request, response) => {
           kind: created.kind,
           resourceGroup,
           location: created.location || location,
+          project: project?.name || null,
           // Newly-created accounts are always AIServices kind — use the .cognitiveservices.azure.com subdomain,
           // NOT the regional endpoint that comes back in created.properties.endpoint.
           endpoint: `https://${created.name || name}.cognitiveservices.azure.com`
@@ -354,10 +400,33 @@ const server = createServer(async (request, response) => {
         const oid = me?.id;
         const sub = await az(['account', 'show']);
         if (!oid || !sub?.id) throw new Error('Could not resolve signed-in user or subscription');
-        const scope = `/subscriptions/${sub.id}/resourceGroups/${resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${account}`;
+        const accountScope = `/subscriptions/${sub.id}/resourceGroups/${resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${account}`;
+        // Look up the account's location so we can create a project in the matching region if one doesn't exist yet.
+        let project = null;
+        try {
+          const acct = await az(['cognitiveservices', 'account', 'show', '--name', account, '--resource-group', resourceGroup]);
+          if (acct?.properties?.allowProjectManagement) {
+            project = await ensureFoundryProject({
+              subscriptionId: sub.id,
+              resourceGroup,
+              account,
+              projectName: 'default-project',
+              location: acct.location
+            });
+          }
+        } catch { /* leave project unset */ }
+        const projectScope = project?.name ? `${accountScope}/projects/${project.name}` : null;
+        const grants = [
+          { role: 'Cognitive Services User', scope: accountScope },
+          { role: 'Cognitive Services OpenAI User', scope: accountScope },
+          ...(projectScope ? [
+            { role: 'Azure AI User', scope: projectScope },
+            { role: 'Azure AI Project Manager', scope: projectScope }
+          ] : [])
+        ];
         const granted = [];
         const skipped = [];
-        for (const role of ['Cognitive Services User', 'Cognitive Services OpenAI User', 'Azure AI User', 'Azure AI Project Manager']) {
+        for (const { role, scope } of grants) {
           try {
             await az(['role', 'assignment', 'create', '--assignee-object-id', oid, '--assignee-principal-type', 'User', '--role', role, '--scope', scope]);
             granted.push(role);
@@ -365,7 +434,7 @@ const server = createServer(async (request, response) => {
             skipped.push({ role, reason: String(e.stderr || e.message).split('\n')[0].slice(0, 120) });
           }
         }
-        return sendJson(response, 200, { granted, skipped, upn: me?.userPrincipalName || me?.mail || null });
+        return sendJson(response, 200, { granted, skipped, project: project?.name || null, upn: me?.userPrincipalName || me?.mail || null });
       } catch (error) {
         return sendJson(response, 500, { error: String(error.stderr || error.message) });
       }
