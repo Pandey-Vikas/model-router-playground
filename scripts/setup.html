@@ -26,7 +26,8 @@
   .footer { display:flex; justify-content:space-between; margin-top: 28px; gap: 10px; }
   .status { margin-top: 14px; font-size: 14px; }
   .status.ok { color: var(--good); }
-  .status.err { color: var(--bad); }
+  .status.err, .status.error { display: block; padding: 14px 16px; margin-top: 14px; background: rgba(239,68,68,0.12); border: 1px solid var(--bad); border-radius: 8px; color: var(--bad); font-size: 14px; line-height: 1.5; }
+  .status.err strong, .status.error strong { display: block; margin-bottom: 6px; font-size: 15px; color: var(--bad); }
   .status.info { color: var(--muted); }
   pre { background: var(--bg); border:1px solid var(--border); border-radius: 8px; padding: 14px; overflow: auto; font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
   .radio { display: flex; gap: 10px; align-items: center; padding: 13px; border:1px solid var(--border); border-radius: 8px; margin-bottom: 10px; cursor: pointer; font-size: 15px; }
@@ -86,6 +87,7 @@ function setStep(n) {
     if (i === n) el.classList.add('active');
   }
   render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function api(path, options = {}) {
@@ -466,10 +468,10 @@ async function renderFoundry(preselectName) {
             await new Promise((r) => setTimeout(r, 600));
           }
         }
-        setProgress(useNewRg ? 2 : 1, 'creating Foundry account <code>' + escapeHtml(name) + '</code> (this can take 60–90 s)…');
+        setProgress(useNewRg ? 2 : 1, 'creating Foundry account <code>' + escapeHtml(name) + '</code>, default project, and role assignments (60–120 s)…');
         const createdResp = await api('/api/create-foundry', { method: 'POST', body: { name, resourceGroup, location, createGroup: false, sku: 'S0' } });
         status.className = 'status ok';
-        status.innerHTML = '✓ ' + (useNewRg ? 'Resource group and ' : '') + 'Foundry account created. Moving to Deployment step…';
+        status.innerHTML = '✓ ' + (useNewRg ? 'Resource group and ' : '') + 'Foundry account ready. Loading deployments…';
         // Re-fetch the account list to get authoritative endpoint / auth settings, then jump straight into Step 5.
         try {
           const accounts = await api('/api/foundry-accounts');
@@ -492,11 +494,35 @@ async function renderFoundry(preselectName) {
             disableLocalAuth: false
           };
         }
-        setTimeout(() => setStep(5), 800);
+        setStep(5);
       } catch (e) {
+        const raw = e.message || 'unknown error';
+        // Try to surface actionable hints for the two errors people hit most often.
+        let hint = '';
+        if (/name.*(available|exists|taken|conflict)/i.test(raw)) {
+          hint = 'This account name is taken (globally unique). Change <b>Account name</b> above and click <b>Create resource</b> again.';
+        } else if (/quota|capacity|SubscriptionQuota/i.test(raw)) {
+          hint = 'The subscription is out of quota for this region or SKU. Try a different <b>Location</b>, or request a quota increase in the Azure Portal.';
+        } else if (/location|region/i.test(raw) && /not (allowed|available|supported)/i.test(raw)) {
+          hint = 'This region does not offer the AI Services SKU right now. Pick a different <b>Location</b> (East US 2, Sweden Central, and West US 3 are usually available).';
+        } else if (/RoleAssignment|authorization|forbidden|permission/i.test(raw)) {
+          hint = 'The signed-in account does not have permission on the subscription / resource group. Ask for the <b>Contributor</b> or <b>Cognitive Services Contributor</b> role and retry.';
+        } else {
+          hint = 'Fix the issue above (or pick different values) and click <b>Retry</b>.';
+        }
         status.className = 'status error';
-        status.innerHTML = 'Create failed: ' + escapeHtml(e.message || 'unknown');
-        btn.disabled = false;
+        status.innerHTML =
+          '<strong>Create failed — resource was NOT created.</strong>' +
+          '<div style="margin-bottom:10px">' + escapeHtml(raw) + '</div>' +
+          '<div style="margin-bottom:10px;color:var(--muted)">' + hint + '</div>' +
+          '<button type="button" class="secondary" id="createRetryBtn">Retry create</button>';
+        btn.disabled = true;
+        const retry = document.getElementById('createRetryBtn');
+        if (retry) retry.onclick = () => {
+          status.style.display = 'none';
+          status.innerHTML = '';
+          btn.disabled = false;
+        };
       }
     };
   } catch (e) { showError(e.message); }
