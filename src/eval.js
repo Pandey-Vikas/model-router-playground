@@ -113,6 +113,7 @@ export async function installToolkit() {
   await runStreamed(venvPy, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip'], { cwd: TOOLKIT_DIR });
   await runStreamed(venvPy, ['-m', 'pip', 'install', '--quiet', '-e', '.'], { cwd: TOOLKIT_DIR });
   patchClientForEntra();
+  patchJudgeForEntra();
   emit('Toolkit ready with Entra ID fallback patched in.');
 }
 
@@ -170,6 +171,64 @@ def _entra_token_provider():
   const patched = before + helper + patchedFn + rest;
   writeFileSync(clientPath, patched, 'utf8');
   emit('Patched src/client.py: empty api_key now falls back to Entra ID (az account get-access-token).');
+}
+
+function patchJudgeForEntra() {
+  const judgePath = join(TOOLKIT_DIR, 'src', 'judge.py');
+  if (!existsSync(judgePath)) { emit('WARNING: src/judge.py not found — cannot patch judge for Entra.'); return; }
+  let source = readFileSync(judgePath, 'utf8');
+  if (source.includes('_judge_entra_token_provider')) { emit('Judge already patched for Entra ID.'); return; }
+  // Replace the whole _build_judge_client body with an Entra-aware version. Uses its own token-provider
+  // symbol so this patch is idempotent even alongside patchClientForEntra.
+  const marker = 'def _build_judge_client(config: EndpointConfig)';
+  const idx = source.indexOf(marker);
+  if (idx === -1) { emit('WARNING: could not locate _build_judge_client in judge.py — patch skipped.'); return; }
+  const helper = `
+import subprocess as _judge_subprocess
+
+
+def _judge_entra_token_provider():
+    """RouteLab patch: fall back to Entra ID via az CLI when the judge api_key is empty."""
+    result = _judge_subprocess.run(
+        ['az', 'account', 'get-access-token', '--resource', 'https://cognitiveservices.azure.com', '--query', 'accessToken', '-o', 'tsv'],
+        capture_output=True, text=True, shell=True
+    )
+    token = result.stdout.strip()
+    if not token:
+        raise RuntimeError(f"Could not acquire Entra token via az CLI: {result.stderr}")
+    return token
+
+
+`;
+  const patchedFn = `def _build_judge_client(config: EndpointConfig) -> AsyncAzureOpenAI | AsyncOpenAI:
+    """Build an async client for the judge model."""
+    if config.type == "azure_openai":
+        if config.api_key:
+            return AsyncAzureOpenAI(
+                azure_endpoint=config.endpoint_url,
+                api_key=config.api_key,
+                api_version="2024-12-01-preview",
+            )
+        return AsyncAzureOpenAI(
+            azure_endpoint=config.endpoint_url,
+            azure_ad_token_provider=_judge_entra_token_provider,
+            api_version="2024-12-01-preview",
+        )
+    elif config.type == "openai_compatible":
+        return AsyncOpenAI(
+            base_url=config.endpoint_url,
+            api_key=config.api_key,
+        )
+    else:
+        raise ValueError(f"Unknown judge endpoint type: '{config.type}'")`;
+  const before = source.substring(0, idx);
+  const after = source.substring(idx);
+  // Function ends at the first '\nclass ' after this def.
+  const endIdx = after.indexOf('\nclass ');
+  if (endIdx === -1) { emit('WARNING: could not locate function end in judge.py — patch skipped.'); return; }
+  const rest = after.substring(endIdx);
+  writeFileSync(judgePath, before + helper + patchedFn + rest, 'utf8');
+  emit('Patched src/judge.py: empty api_key now falls back to Entra ID for the LLM-as-judge call.');
 }
 
 export function configureToolkitEnv({ routerEndpoint, routerDeployment, apiKey, apiVersion, baselineEndpoint, baselineDeployment, baselineKey, judgeEndpoint, judgeDeployment, judgeKey }) {
