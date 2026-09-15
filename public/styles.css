@@ -563,11 +563,4 @@ button.meta-chip.cost:hover { background: var(--coral-soft); }
 
 .compare-table tr.section-divider td { padding: 12px 14px; background: var(--paper); color: var(--muted); font: 700 10px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.08em; border-top: 2px solid var(--line); }
 
-.compare-judge { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; flex-wrap: wrap; }
-.compare-judge label { color: var(--muted); font-size: 12px; }
-.compare-judge select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 3px; font: 500 12px "Cascadia Mono", Consolas, monospace; min-width: 220px; }
-.compare-judge button { padding: 6px 14px; border: 1px solid var(--green); background: var(--green); color: white; border-radius: 3px; font: 700 11px "Cascadia Mono", Consolas, monospace; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; }
-.compare-judge button:disabled { opacity: 0.5; cursor: not-allowed; background: var(--muted); border-color: var(--muted); }
-.compare-judge-status { color: var(--muted); font-size: 11px; margin-left: auto; }
-
 .compare-table .cell-quality { display: block; margin-top: 4px; color: var(--accent); font: 600 10px "Cascadia Mono", Consolas, monospace; }

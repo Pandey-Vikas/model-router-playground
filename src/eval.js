@@ -379,9 +379,24 @@ export async function listAccountDeployments() {
 }
 
 export const RECOMMENDED_MODELS = [
-  { role: 'baseline', deploymentName: 'gpt-5.2', modelName: 'gpt-5.2', modelVersion: '2025-12-11', sku: 'GlobalStandard', capacity: 1, note: 'Strong OpenAI model — good baseline vs router.' },
+  // GPT-5 family
   { role: 'judge', deploymentName: 'gpt-5.6-luna', modelName: 'gpt-5.6-luna', modelVersion: '2026-07-09', sku: 'GlobalStandard', capacity: 1, note: 'Latest frontier — high-quality LLM-as-judge.' },
-  { role: 'judge', deploymentName: 'claude-sonnet-4-5', modelName: 'claude-sonnet-4-5', modelVersion: '20250929', sku: 'GlobalStandard', capacity: 1, note: 'Anthropic judge (requires access to Claude models).' }
+  { role: 'baseline', deploymentName: 'gpt-5.2', modelName: 'gpt-5.2', modelVersion: '2025-12-11', sku: 'GlobalStandard', capacity: 1, note: 'Strong OpenAI model — solid baseline vs router.' },
+  { role: 'baseline', deploymentName: 'gpt-5', modelName: 'gpt-5', modelVersion: '2025-08-07', sku: 'GlobalStandard', capacity: 1, note: 'GPT-5 base — reliable general-purpose baseline.' },
+  { role: 'baseline', deploymentName: 'gpt-5-mini', modelName: 'gpt-5-mini', modelVersion: '2025-08-07', sku: 'GlobalStandard', capacity: 1, note: 'Cheaper GPT-5 tier — good "small model" baseline.' },
+  { role: 'baseline', deploymentName: 'gpt-5-nano', modelName: 'gpt-5-nano', modelVersion: '2025-08-07', sku: 'GlobalStandard', capacity: 1, note: 'Smallest / cheapest GPT-5 — high volume baseline.' },
+  // GPT-4.1 family
+  { role: 'judge', deploymentName: 'gpt-4.1', modelName: 'gpt-4.1', modelVersion: '2025-04-14', sku: 'GlobalStandard', capacity: 1, note: 'Strong general-purpose model — reliable judge for structured scoring.' },
+  { role: 'baseline', deploymentName: 'gpt-4.1-mini', modelName: 'gpt-4.1-mini', modelVersion: '2025-04-14', sku: 'GlobalStandard', capacity: 1, note: 'Cheap, fast — good "low-cost baseline" to compare router savings.' },
+  { role: 'baseline', deploymentName: 'gpt-4.1-nano', modelName: 'gpt-4.1-nano', modelVersion: '2025-04-14', sku: 'GlobalStandard', capacity: 1, note: 'Cheapest 4.1 tier — high volume workloads.' },
+  // GPT-4o family
+  { role: 'judge', deploymentName: 'gpt-4o', modelName: 'gpt-4o', modelVersion: '2024-11-20', sku: 'GlobalStandard', capacity: 1, note: 'Widely available workhorse — safe fallback judge.' },
+  { role: 'baseline', deploymentName: 'gpt-4o-mini', modelName: 'gpt-4o-mini', modelVersion: '2024-07-18', sku: 'GlobalStandard', capacity: 1, note: 'Cheapest OpenAI baseline — best cost-savings comparison.' },
+  // Reasoning models
+  { role: 'judge', deploymentName: 'o4-mini', modelName: 'o4-mini', modelVersion: '2025-04-16', sku: 'GlobalStandard', capacity: 1, note: 'Reasoning judge — better for math / code / logic-heavy datasets.' },
+  { role: 'judge', deploymentName: 'o3-mini', modelName: 'o3-mini', modelVersion: '2025-01-31', sku: 'GlobalStandard', capacity: 1, note: 'Cheaper reasoning judge — still good on structured evaluation.' },
+  // Anthropic (Foundry catalog)
+  { role: 'judge', deploymentName: 'claude-sonnet-4-5', modelName: 'claude-sonnet-4-5', modelVersion: '20250929', sku: 'GlobalStandard', capacity: 1, note: 'Anthropic judge (needs access to Claude models in Foundry).' }
 ];
 
 export async function deployModel({ deploymentName, modelName, modelVersion, sku = 'GlobalStandard', capacity = 1 }) {

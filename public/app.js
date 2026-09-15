@@ -993,13 +993,6 @@ function renderComparisonBody(results, view) {
   const body = view === 'columns'
     ? '<div class="compare-grid">' + results.map(renderComparisonColumn).join('') + '</div>'
     : renderComparisonTable(results);
-  const judgeSection =
-    '<div class="compare-judge">' +
-      '<label>Score responses with a judge (uses Entra auth, no API key needed):</label>' +
-      '<select id="compareJudge"><option value="">— pick a judge deployment —</option></select>' +
-      '<button type="button" id="compareScoreButton" disabled>Score all</button>' +
-      '<span class="compare-judge-status" id="compareJudgeStatus"></span>' +
-    '</div>';
   elements.compareModalBody.innerHTML =
     '<div class="compare-actions"><span class="count">Comparing ' + results.length + ' conversations</span>' +
     '<div class="compare-view-toggle">' +
@@ -1007,56 +1000,10 @@ function renderComparisonBody(results, view) {
       '<button type="button" id="compareViewCols" class="' + (view === 'columns' ? 'active' : '') + '">Side-by-side</button>' +
     '</div>' +
     '<button type="button" id="compareBack">← Back to picker</button></div>' +
-    judgeSection +
     body;
   document.getElementById('compareBack').addEventListener('click', renderComparePicker);
   document.getElementById('compareViewTable').addEventListener('click', () => renderComparisonBody(results, 'table'));
   document.getElementById('compareViewCols').addEventListener('click', () => renderComparisonBody(results, 'columns'));
-  populateJudgeDropdown();
-  document.getElementById('compareScoreButton').addEventListener('click', () => scoreAllConversations(results));
-}
-
-async function populateJudgeDropdown() {
-  const sel = document.getElementById('compareJudge');
-  const btn = document.getElementById('compareScoreButton');
-  if (!sel) return;
-  try {
-    const { deployments } = await api('/api/eval/deployments');
-    const opts = (deployments || []).filter((d) => (d.model || '').toLowerCase() !== 'model-router')
-      .map((d) => `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)} — ${escapeHtml(d.model || 'unknown')}</option>`).join('');
-    sel.innerHTML = '<option value="">— pick a judge deployment —</option>' + opts;
-    sel.addEventListener('change', () => { btn.disabled = !sel.value; });
-  } catch (error) {
-    sel.innerHTML = '<option value="">Could not load deployments (need az login)</option>';
-  }
-}
-
-async function scoreAllConversations(results) {
-  const sel = document.getElementById('compareJudge');
-  const btn = document.getElementById('compareScoreButton');
-  const status = document.getElementById('compareJudgeStatus');
-  const judge = sel?.value;
-  if (!judge) return;
-  btn.disabled = true;
-  const original = btn.textContent;
-  try {
-    for (let i = 0; i < results.length; i += 1) {
-      const conv = results[i].conversation;
-      status.textContent = `Scoring conversation ${i + 1}/${results.length} (${conv.title})…`;
-      await api(`/api/conversations/${conv.id}/score`, { method: 'POST', body: JSON.stringify({ judgeDeployment: judge }) });
-    }
-    status.textContent = 'Refreshing analytics…';
-    const refreshed = await Promise.all(results.map(async (r) => {
-      const analytics = await api('/api/analytics?conversationId=' + encodeURIComponent(r.conversation.id));
-      return { conversation: r.conversation, analytics };
-    }));
-    status.innerHTML = '<span style="color:var(--green)">✓ Scoring complete.</span>';
-    renderComparisonBody(refreshed, document.getElementById('compareViewTable')?.classList.contains('active') ? 'table' : 'columns');
-  } catch (error) {
-    status.innerHTML = '<span style="color:#c9302c">Failed: ' + escapeHtml(error.message) + '</span>';
-    btn.disabled = false;
-    btn.textContent = original;
-  }
 }
 
 function renderComparisonTable(results) {
