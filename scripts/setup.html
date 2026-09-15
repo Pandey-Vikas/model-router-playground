@@ -648,8 +648,8 @@ async function renderDeployment() {
     const summaryRows = targets.map((t) => {
       const found = deps.find((d) => d.name.toLowerCase() === t.label.toLowerCase());
       return found
-        ? '<label class="prereq-row"><div class="prereq-info"><strong>' + t.label + '</strong><small>' + escapeHtml(found.model || 'model-router') + ' · v' + escapeHtml(found.version || 'unknown') + ' · mode = ' + t.mode + '</small></div><span class="prereq-ok" title="Deployment created">&#10004;</span></label>'
-        : '<label class="prereq-row"><div class="prereq-info"><strong>' + t.label + '</strong><small>Not deployed — use the Deploy step or Foundry Portal to add it (mode = ' + t.mode + ').</small></div><span class="prereq-missing" title="Not deployed">&#10008;</span></label>';
+        ? '<label class="prereq-row"><span class="prereq-ok" title="Deployment created">&#10004;</span><div class="prereq-info"><strong>' + t.label + '</strong><small>' + escapeHtml(found.model || 'model-router') + ' · v' + escapeHtml(found.version || 'unknown') + ' · mode = ' + t.mode + '</small></div><span class="prereq-manual">created</span></label>'
+        : '<label class="prereq-row"><span class="prereq-missing" title="Not deployed">&#10008;</span><div class="prereq-info"><strong>' + t.label + '</strong><small>Not deployed — use the Deploy step or Foundry Portal to add it (mode = ' + t.mode + ').</small></div><span class="prereq-manual">missing</span></label>';
     }).join('');
     const summaryBlock = '<div style="display:flex;flex-direction:column;gap:8px;margin:14px 0">' + summaryRows + '</div>';
     panel.innerHTML =
