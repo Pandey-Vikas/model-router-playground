@@ -790,9 +790,15 @@ async function refreshEvalDeployments() {
 function appendEvalLine(record) {
   if (!elements.evalConsole) return;
   if (elements.evalConsole.querySelector('.empty-analytics')) elements.evalConsole.innerHTML = '';
+  const line = record.line;
+  // Only actual failures light up red. Benign pip/git stderr (warnings, hints,
+  // notices, deprecation messages, "already up to date") stays neutral.
+  const isCmd = line.startsWith('$');
+  const isBenign = /^(WARNING|NOTICE|hint:|note:|From |remote:|Requirement|Collecting|Downloading|Installing|Successfully|Already|Receiving|Resolving|Unpacking|Updating|Fast-forward|Enumerating|Counting|Compressing|Writing|Preparing|Using cached|Building|Getting|deprecat|DEPRECAT)/i.test(line);
+  const looksLikeError = !isBenign && /^(ERROR|FAIL|Traceback|fatal:|error:)/i.test(line);
   const el = document.createElement('span');
-  el.className = 'line' + (record.line.startsWith('$') ? ' cmd' : /error|traceback|failed/i.test(record.line) ? ' err' : '');
-  el.textContent = record.line + '\n';
+  el.className = 'line' + (isCmd ? ' cmd' : looksLikeError ? ' err' : '');
+  el.textContent = line + '\n';
   elements.evalConsole.appendChild(el);
   elements.evalConsole.scrollTop = elements.evalConsole.scrollHeight;
   refreshEvalStatus();
@@ -1353,8 +1359,42 @@ try {
   });
   elements.evalExportButton?.addEventListener('click', exportJsonl);
   elements.evalInstallButton?.addEventListener('click', async () => {
-    try { await api('/api/eval/install', { method: 'POST', body: '{}' }); showToast('Toolkit install started.'); refreshEvalStatus(); }
-    catch (error) { showToast(error.message); }
+    const btn = elements.evalInstallButton;
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Installing… (this can take several minutes)';
+    // Reveal streaming output so the user has feedback while pip runs.
+    if (elements.evalConsole) {
+      const emptyEl = elements.evalConsole.querySelector('.empty-analytics');
+      if (emptyEl) emptyEl.remove();
+      const marker = document.createElement('span');
+      marker.className = 'line cmd';
+      marker.textContent = '$ install-toolkit (git clone + python -m venv + pip install -e .)\n';
+      elements.evalConsole.appendChild(marker);
+      elements.evalConsole.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      elements.evalConsole.scrollTop = elements.evalConsole.scrollHeight;
+    }
+    try {
+      await api('/api/eval/install', { method: 'POST', body: '{}' });
+      showToast('Toolkit install started. Watch the console below for progress.');
+      // Poll status; the server-side install is fire-and-forget, so wait for toolkitInstalled to flip.
+      const startedAt = Date.now();
+      let done = false;
+      while (!done && Date.now() - startedAt < 15 * 60 * 1000) {
+        await new Promise(r => setTimeout(r, 2500));
+        try {
+          const s = await api('/api/eval/status');
+          if (s.toolkitInstalled && s.venvReady && !s.busy) { done = true; break; }
+        } catch { /* keep polling */ }
+      }
+      showToast(done ? 'Toolkit ready.' : 'Install still running — check the console.');
+      refreshEvalStatus();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
   });
   elements.evalRunButton?.addEventListener('click', () => runEvalDataset(false).catch((e) => showToast(e.message)));
   elements.evalDryRunButton?.addEventListener('click', () => runEvalDataset(true).catch((e) => showToast(e.message)));

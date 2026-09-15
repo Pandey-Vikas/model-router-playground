@@ -83,7 +83,7 @@ function runStreamed(command, args, options = {}) {
     child.on('exit', (code) => {
       activeProc = null;
       emit(`exit code ${code}`);
-      if (code === 0) resolve(code);
+      if (code === 0 || options.nonFatal) resolve(code);
       else reject(new Error(`Command exited with code ${code}`));
     });
   });
@@ -91,18 +91,21 @@ function runStreamed(command, args, options = {}) {
 
 export async function installToolkit() {
   if (!existsSync(TOOLKIT_DIR)) {
-    await runStreamed('git', ['clone', TOOLKIT_REPO, TOOLKIT_DIR]);
+    // Shallow clone avoids branch/tag drift issues on colleagues' machines.
+    await runStreamed('git', ['clone', '--depth', '1', TOOLKIT_REPO, TOOLKIT_DIR]);
   } else {
-    emit('Toolkit already cloned; pulling latest.');
-    await runStreamed('git', ['pull'], { cwd: TOOLKIT_DIR });
+    emit('Toolkit already cloned; refreshing to latest commit.');
+    // fetch + reset avoids "not on a branch" / diverged-history errors that break `git pull`.
+    await runStreamed('git', ['fetch', '--depth', '1', 'origin', 'HEAD'], { cwd: TOOLKIT_DIR, nonFatal: true });
+    await runStreamed('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: TOOLKIT_DIR, nonFatal: true });
   }
   const py = process.platform === 'win32' ? 'python' : 'python3';
   await runStreamed(py, ['-m', 'venv', '.venv'], { cwd: TOOLKIT_DIR });
   const venvPy = process.platform === 'win32'
     ? join(TOOLKIT_DIR, '.venv', 'Scripts', 'python.exe')
     : join(TOOLKIT_DIR, '.venv', 'bin', 'python');
-  await runStreamed(venvPy, ['-m', 'pip', 'install', '--upgrade', 'pip'], { cwd: TOOLKIT_DIR });
-  await runStreamed(venvPy, ['-m', 'pip', 'install', '-e', '.'], { cwd: TOOLKIT_DIR });
+  await runStreamed(venvPy, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip'], { cwd: TOOLKIT_DIR });
+  await runStreamed(venvPy, ['-m', 'pip', 'install', '--quiet', '-e', '.'], { cwd: TOOLKIT_DIR });
   patchClientForEntra();
   emit('Toolkit ready with Entra ID fallback patched in.');
 }
