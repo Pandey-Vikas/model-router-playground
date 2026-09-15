@@ -471,7 +471,15 @@ async function renderFoundry(preselectName) {
         setProgress(useNewRg ? 2 : 1, 'creating Foundry account <code>' + escapeHtml(name) + '</code>, default project, and role assignments (60–120 s)…');
         const createdResp = await api('/api/create-foundry', { method: 'POST', body: { name, resourceGroup, location, createGroup: false, sku: 'S0' } });
         status.className = 'status ok';
-        status.innerHTML = '✓ ' + (useNewRg ? 'Resource group and ' : '') + 'Foundry account ready. Loading deployments…';
+        const grantedList = (createdResp.grantedRoles || []).join(', ') || '(none)';
+        const skippedNote = (createdResp.skippedRoles && createdResp.skippedRoles.length)
+          ? '<br><small style="color:var(--warn)">Note — some roles were not granted (may not exist in your tenant): ' + escapeHtml(createdResp.skippedRoles.map(s => s.role).join(', ')) + '</small>'
+          : '';
+        status.innerHTML =
+          '<strong>✓ Foundry account and default project created.</strong>' +
+          '<div style="margin-top:6px;font-size:13px">Roles granted to you: <code>' + escapeHtml(grantedList) + '</code></div>' +
+          '<div style="margin-top:6px;font-size:13px;color:var(--muted)">Azure RBAC can take 30–60 s to propagate before chat calls succeed. Loading deployments…</div>' +
+          skippedNote;
         // Re-fetch the account list to get authoritative endpoint / auth settings, then jump straight into Step 5.
         try {
           const accounts = await api('/api/foundry-accounts');

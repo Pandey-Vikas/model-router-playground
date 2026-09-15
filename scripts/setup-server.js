@@ -353,6 +353,8 @@ const server = createServer(async (request, response) => {
         } catch (e) { /* project best-effort — account still usable via classic path */ }
         // Grant the signed-in user the minimum roles needed for Entra ID chat completions to work immediately.
         // Account-scope: Cognitive Services User + OpenAI User. Project-scope: Azure AI User + Project Manager.
+        const grantedRoles = [];
+        const skippedRoles = [];
         try {
           const me = await az(['ad', 'signed-in-user', 'show']);
           const oid = me?.id;
@@ -371,16 +373,40 @@ const server = createServer(async (request, response) => {
             for (const { role, scope } of grants) {
               try {
                 await az(['role', 'assignment', 'create', '--assignee-object-id', oid, '--assignee-principal-type', 'User', '--role', role, '--scope', scope]);
-              } catch { /* role may already exist or not be defined in this tenant — ignore */ }
+                grantedRoles.push(role);
+              } catch (e) {
+                const reason = String(e.stderr || e.message).split('\n')[0].slice(0, 200);
+                // If the role already exists on this scope, count it as a success — the user does have access.
+                if (/already exists|role assignment.*exists/i.test(reason)) grantedRoles.push(role);
+                else skippedRoles.push({ role, reason });
+              }
             }
+          } else {
+            skippedRoles.push({ role: 'ALL', reason: 'Could not resolve signed-in user or subscription id' });
           }
-        } catch { /* rbac best-effort — creation still succeeds */ }
+        } catch (e) {
+          skippedRoles.push({ role: 'ALL', reason: String(e.stderr || e.message).slice(0, 200) });
+        }
+        // Fail visibly if none of the data-plane roles landed at account scope — the demo will 401 otherwise.
+        const hasDataPlane = grantedRoles.includes('Cognitive Services User') || grantedRoles.includes('Cognitive Services OpenAI User');
+        if (!hasDataPlane) {
+          return sendJson(response, 500, {
+            error: 'Account was created but no data-plane role could be granted. Chat completions will return 401. First skipped role: ' +
+              (skippedRoles[0]?.role || 'unknown') + ' — ' + (skippedRoles[0]?.reason || 'no details') +
+              '. Fix: grant "Cognitive Services User" and "Cognitive Services OpenAI User" manually, then click Refresh.',
+            name: created.name,
+            resourceGroup,
+            skippedRoles
+          });
+        }
         return sendJson(response, 200, {
           name: created.name,
           kind: created.kind,
           resourceGroup,
           location: created.location || location,
           project: project?.name || null,
+          grantedRoles,
+          skippedRoles,
           // Newly-created accounts are always AIServices kind — use the .cognitiveservices.azure.com subdomain,
           // NOT the regional endpoint that comes back in created.properties.endpoint.
           endpoint: `https://${created.name || name}.cognitiveservices.azure.com`
