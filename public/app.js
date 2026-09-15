@@ -1371,6 +1371,7 @@ try {
   });
   subscribeToEval();
   refreshEvalStatus();
+  refreshEvalDeployments();
   renderLogs();
   subscribeToLogs();
 } catch (error) { showToast(error.message); }
