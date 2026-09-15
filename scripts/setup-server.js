@@ -16,6 +16,7 @@ const useShell = process.platform === 'win32';
 async function az(args, { timeoutMs = 120_000 } = {}) {
   const { stdout } = await execFileAsync(azCommand, [...args, '--only-show-errors', '--output', 'json'], {
     shell: useShell,
+    windowsHide: true,
     maxBuffer: 32 * 1024 * 1024,
     timeout: timeoutMs
   });
@@ -232,11 +233,12 @@ const server = createServer(async (request, response) => {
       const filtered = (accounts || [])
         .filter(a => ['AIServices', 'OpenAI'].includes(a.kind))
         .map(a => {
-          const endpoints = a.properties?.endpoints || {};
-          const endpoint = endpoints['OpenAI Language Model Instance API']
-            || endpoints['Azure OpenAI Legacy API - Latest moniker']
-            || a.properties?.endpoint
-            || `https://${a.name}.openai.azure.com/`;
+          // AI Services accounts route AOAI-compatible calls through .cognitiveservices.azure.com.
+          // Legacy OpenAI kind uses .openai.azure.com.
+          // The regional endpoint (properties.endpoints[*] all point to <region>.api.cognitive.microsoft.com)
+          // does NOT route chat completions to a specific resource — never use it here.
+          const suffix = a.kind === 'OpenAI' ? 'openai.azure.com' : 'cognitiveservices.azure.com';
+          const endpoint = `https://${a.name}.${suffix}`;
           return {
             name: a.name,
             kind: a.kind,
@@ -259,11 +261,35 @@ const server = createServer(async (request, response) => {
       const preferred = ['eastus', 'eastus2', 'westus', 'westus2', 'westus3', 'southcentralus', 'northcentralus', 'westeurope', 'northeurope', 'swedencentral', 'switzerlandnorth', 'uksouth', 'francecentral', 'australiaeast', 'japaneast', 'canadaeast'];
       try {
         const locs = await az(['account', 'list-locations']);
-        const known = new Set((locs || []).map(l => l.name));
-        const filtered = preferred.filter(p => known.has(p));
-        return sendJson(response, 200, filtered.length ? filtered : preferred);
+        if (!Array.isArray(locs) || !locs.length) return sendJson(response, 200, preferred.map((n) => ({ name: n, displayName: n, preferred: true })));
+        const preferredSet = new Set(preferred);
+        const rich = locs
+          .filter((l) => l && l.metadata && (l.metadata.regionType || '').toLowerCase() === 'physical')
+          .map((l) => ({ name: l.name, displayName: l.displayName || l.name, preferred: preferredSet.has(l.name) }))
+          .sort((a, b) => {
+            if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
+            return a.displayName.localeCompare(b.displayName);
+          });
+        return sendJson(response, 200, rich);
       } catch {
-        return sendJson(response, 200, preferred);
+        return sendJson(response, 200, preferred.map((n) => ({ name: n, displayName: n, preferred: true })));
+      }
+    }
+
+    if (url.pathname === '/api/create-resource-group' && request.method === 'POST') {
+      const { name, location } = await readJson(request);
+      if (!name || !location) {
+        return sendJson(response, 400, { error: 'name and location are required' });
+      }
+      try {
+        const existing = await az(['group', 'exists', '--name', name]);
+        if (existing === true || String(existing).toLowerCase() === 'true') {
+          return sendJson(response, 200, { name, location, existed: true });
+        }
+        const rg = await az(['group', 'create', '--name', name, '--location', location]);
+        return sendJson(response, 200, { name: rg?.name || name, location: rg?.location || location, existed: false });
+      } catch (error) {
+        return sendJson(response, 500, { error: String(error.stderr || error.message) });
       }
     }
 
@@ -283,17 +309,112 @@ const server = createServer(async (request, response) => {
           '--kind', 'AIServices',
           '--sku', sku || 'S0',
           '--location', location,
+          '--custom-domain', name,
           '--yes'
         ]);
+        // Grant the signed-in user the minimum roles needed for Entra ID chat completions to work immediately.
+        // Cognitive Services User = read config; Cognitive Services OpenAI User = call chat completions.
+        // Azure AI User / Project Manager are the newer Foundry roles but may not exist in every tenant.
+        try {
+          const me = await az(['ad', 'signed-in-user', 'show']);
+          const oid = me?.id;
+          const sub = await az(['account', 'show']);
+          const scope = `/subscriptions/${sub?.id}/resourceGroups/${resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${name}`;
+          if (oid && sub?.id) {
+            const roles = ['Cognitive Services User', 'Cognitive Services OpenAI User', 'Azure AI User', 'Azure AI Project Manager'];
+            for (const role of roles) {
+              try {
+                await az(['role', 'assignment', 'create', '--assignee-object-id', oid, '--assignee-principal-type', 'User', '--role', role, '--scope', scope]);
+              } catch { /* role may already exist or not be defined in this tenant — ignore */ }
+            }
+          }
+        } catch { /* rbac best-effort — creation still succeeds */ }
         return sendJson(response, 200, {
           name: created.name,
           kind: created.kind,
           resourceGroup,
           location: created.location || location,
-          endpoint: created.properties?.endpoint || `https://${name}.openai.azure.com/`
+          // Newly-created accounts are always AIServices kind — use the .cognitiveservices.azure.com subdomain,
+          // NOT the regional endpoint that comes back in created.properties.endpoint.
+          endpoint: `https://${created.name || name}.cognitiveservices.azure.com`
         });
       } catch (error) {
         return sendJson(response, 500, { error: String(error.stderr || error.message) });
+      }
+    }
+
+    if (url.pathname === '/api/grant-access' && request.method === 'POST') {
+      const { account, resourceGroup } = await readJson(request);
+      if (!account || !resourceGroup) {
+        return sendJson(response, 400, { error: 'account and resourceGroup are required' });
+      }
+      try {
+        const me = await az(['ad', 'signed-in-user', 'show']);
+        const oid = me?.id;
+        const sub = await az(['account', 'show']);
+        if (!oid || !sub?.id) throw new Error('Could not resolve signed-in user or subscription');
+        const scope = `/subscriptions/${sub.id}/resourceGroups/${resourceGroup}/providers/Microsoft.CognitiveServices/accounts/${account}`;
+        const granted = [];
+        const skipped = [];
+        for (const role of ['Cognitive Services User', 'Cognitive Services OpenAI User', 'Azure AI User', 'Azure AI Project Manager']) {
+          try {
+            await az(['role', 'assignment', 'create', '--assignee-object-id', oid, '--assignee-principal-type', 'User', '--role', role, '--scope', scope]);
+            granted.push(role);
+          } catch (e) {
+            skipped.push({ role, reason: String(e.stderr || e.message).split('\n')[0].slice(0, 120) });
+          }
+        }
+        return sendJson(response, 200, { granted, skipped, upn: me?.userPrincipalName || me?.mail || null });
+      } catch (error) {
+        return sendJson(response, 500, { error: String(error.stderr || error.message) });
+      }
+    }
+
+    if (url.pathname === '/api/deploy-router' && request.method === 'POST') {
+      const { account, resourceGroup, deploymentName, mode, capacity, version } = await readJson(request);
+      if (!account || !resourceGroup || !deploymentName || !mode) {
+        return sendJson(response, 400, { error: 'account, resourceGroup, deploymentName and mode are required' });
+      }
+      if (!['balanced', 'cost', 'quality'].includes(String(mode).toLowerCase())) {
+        return sendJson(response, 400, { error: 'mode must be balanced, cost or quality' });
+      }
+      try {
+        const sub = await az(['account', 'show']);
+        const subscriptionId = sub?.id;
+        if (!subscriptionId) throw new Error('Could not resolve subscription id from az account show');
+        const tokenObj = await az(['account', 'get-access-token', '--resource', 'https://management.azure.com']);
+        const token = tokenObj?.accessToken;
+        if (!token) throw new Error('Could not acquire ARM access token');
+        const url = `https://management.azure.com/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.CognitiveServices/accounts/${encodeURIComponent(account)}/deployments/${encodeURIComponent(deploymentName)}?api-version=2025-10-01-preview`;
+        const body = {
+          sku: { name: 'GlobalStandard', capacity: Number(capacity) || 10 },
+          properties: {
+            model: { format: 'OpenAI', name: 'model-router', version: version || '2025-11-18' },
+            routing: { mode: String(mode).toLowerCase() }
+          }
+        };
+        const res = await fetch(url, {
+          method: 'PUT',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(180_000)
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          let msg = text;
+          try { msg = JSON.parse(text)?.error?.message || text; } catch { /* keep raw */ }
+          throw new Error(`Deploy failed (${res.status}): ${String(msg).slice(0, 300)}`);
+        }
+        const parsed = text ? JSON.parse(text) : {};
+        return sendJson(response, 200, {
+          name: parsed.name || deploymentName,
+          mode: String(mode).toLowerCase(),
+          model: parsed.properties?.model?.name || 'model-router',
+          version: parsed.properties?.model?.version || (version || '2025-11-18'),
+          provisioningState: parsed.properties?.provisioningState || 'Requested'
+        });
+      } catch (error) {
+        return sendJson(response, 500, { error: String(error?.stderr || error?.message || error) });
       }
     }
 
@@ -369,7 +490,7 @@ const prerequisites = [
     required: 'any recent version',
     detect: async () => {
       const cmd = process.platform === 'win32' ? 'az.cmd' : 'az';
-      const { stdout } = await execFileAsync(cmd, ['version', '--output', 'json'], { shell: useShell, timeout: 15_000 });
+      const { stdout } = await execFileAsync(cmd, ['version', '--output', 'json'], { shell: useShell, windowsHide: true, timeout: 15_000 });
       const j = JSON.parse(stdout);
       return { installed: true, version: j['azure-cli'] };
     },
@@ -381,7 +502,7 @@ const prerequisites = [
     required: '3.9 or later (only for Auto Evaluation toolkit)',
     detect: async () => {
       const cmd = process.platform === 'win32' ? 'python' : 'python3';
-      const { stdout } = await execFileAsync(cmd, ['--version'], { shell: useShell, timeout: 10_000 });
+      const { stdout } = await execFileAsync(cmd, ['--version'], { shell: useShell, windowsHide: true, timeout: 10_000 });
       return { installed: true, version: stdout.trim().replace(/^Python /i, '') };
     },
     winget: 'Python.Python.3.12'
@@ -391,7 +512,7 @@ const prerequisites = [
     label: 'Git',
     required: 'any recent version (only for Auto Evaluation toolkit)',
     detect: async () => {
-      const { stdout } = await execFileAsync('git', ['--version'], { shell: useShell, timeout: 10_000 });
+      const { stdout } = await execFileAsync('git', ['--version'], { shell: useShell, windowsHide: true, timeout: 10_000 });
       return { installed: true, version: stdout.trim().replace(/^git version /i, '') };
     },
     winget: 'Git.Git'
@@ -433,7 +554,7 @@ async function installPrerequisite(key) {
     '--exact', '--source', 'winget',
     '--accept-package-agreements', '--accept-source-agreements',
     '--silent'
-  ], { shell: useShell, timeout: 15 * 60 * 1000, maxBuffer: 32 * 1024 * 1024 });
+  ], { shell: useShell, windowsHide: true, timeout: 15 * 60 * 1000, maxBuffer: 32 * 1024 * 1024 });
   return true;
 }
 

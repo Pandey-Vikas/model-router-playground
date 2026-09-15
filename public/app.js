@@ -139,6 +139,26 @@ function renderConversation() {
   if (shouldScroll) elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
+function renderFoundryContext() {
+  const f = state.foundry;
+  const nodes = [document.getElementById('scenariosFoundryContext'), document.getElementById('evalFoundryContext')];
+  const hasContext = !!(f && (f.name || f.resourceGroup || f.endpoint));
+  const html = hasContext ? [
+    f.resourceGroup ? `<span class="lbl">Resource group</span><span class="val">${escapeHtml(f.resourceGroup)}</span>` : '',
+    f.name ? `<span class="lbl">Foundry resource</span><span class="val">${escapeHtml(f.name)}</span>` : '',
+    f.endpoint ? `<span class="lbl">Endpoint</span><span class="val">${escapeHtml(f.endpoint)}</span>` : ''
+  ].filter(Boolean).join('') : '';
+  for (const el of nodes) {
+    if (!el) continue;
+    if (hasContext) {
+      el.innerHTML = html;
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+  }
+}
+
 function renderScenarios() {
   elements.scenarioList.innerHTML = state.scenarios.map((scenario) => `
     <button class="scenario" type="button" data-scenario="${scenario.level}">
@@ -1300,11 +1320,12 @@ try {
   const [config, scenariosData, conversations, analytics] = await Promise.all([
     api('/api/config'), api('/api/scenarios'), api('/api/conversations'), api('/api/analytics')
   ]);
-  Object.assign(state, { provider: config.provider, scenarios: scenariosData, conversations, analytics, deployments: config.deployments || {} });
+  Object.assign(state, { provider: config.provider, scenarios: scenariosData, conversations, analytics, deployments: config.deployments || {}, foundry: config.foundry || null });
   const isFoundry = state.provider === 'foundry';
   elements.providerName.textContent = isFoundry ? 'Foundry router' : 'Mock router';
   elements.providerHint.textContent = isFoundry ? 'Live endpoint connected' : 'Ready without an endpoint';
   if (elements.headerProvider) elements.headerProvider.textContent = isFoundry ? 'LIVE FOUNDRY' : 'SIMULATION';
+  renderFoundryContext();
   renderHistory(); renderScenarios(); renderAnalytics(); renderConversation();
   renderImportedDataset();
   renderScenarioBundled();

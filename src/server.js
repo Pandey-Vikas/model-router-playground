@@ -90,7 +90,18 @@ export function createApp({ database = createDatabase(), providerName = process.
           cost: process.env.MODEL_ROUTER_DEPLOYMENT_COST || fallback,
           quality: process.env.MODEL_ROUTER_DEPLOYMENT_QUALITY || fallback
         };
-        return sendJson(response, 200, { provider: providerName, deployments });
+        // Derive the resource name from the endpoint if the wizard didn't write it explicitly.
+        let foundryName = process.env.AZURE_FOUNDRY_RESOURCE_NAME || null;
+        if (!foundryName && process.env.AZURE_OPENAI_ENDPOINT) {
+          const match = /https?:\/\/([^./]+)/.exec(process.env.AZURE_OPENAI_ENDPOINT);
+          if (match) foundryName = match[1];
+        }
+        const foundry = {
+          name: foundryName,
+          resourceGroup: process.env.AZURE_FOUNDRY_RESOURCE_GROUP || null,
+          endpoint: process.env.AZURE_OPENAI_ENDPOINT || null
+        };
+        return sendJson(response, 200, { provider: providerName, deployments, foundry });
       }
       if (url.pathname === '/api/scenarios' && request.method === 'GET') return sendJson(response, 200, scenarios);
       if (url.pathname === '/api/conversations' && request.method === 'GET') return sendJson(response, 200, database.listConversations());
@@ -124,6 +135,7 @@ export function createApp({ database = createDatabase(), providerName = process.
           const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', setupScript], {
             cwd: rootDir,
             detached: true,
+            windowsHide: true,
             stdio: 'ignore',
             env: { ...process.env, AZURE_LOGIN_EXPERIENCE_V2: 'off' }
           });

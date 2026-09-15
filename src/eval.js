@@ -13,6 +13,7 @@ const useShell = process.platform === 'win32';
 async function az(args, { timeoutMs = 300_000 } = {}) {
   const { stdout } = await execFileAsync(azCommand, [...args, '--only-show-errors', '--output', 'json'], {
     shell: useShell,
+    windowsHide: true,
     maxBuffer: 32 * 1024 * 1024,
     timeout: timeoutMs
   });

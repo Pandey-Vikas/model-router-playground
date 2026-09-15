@@ -93,6 +93,7 @@
         </div>
         <section id="scenariosTab" class="tab-content">
           <div class="panel-intro"><p class="eyebrow">COMPLEXITY LADDER</p><h2>Test the routing range</h2><p>Run prompts from direct recall to expert synthesis.</p></div>
+          <div class="foundry-context" id="scenariosFoundryContext" hidden></div>
           <div class="ladder-runner">
             <div class="ladder-choice">
               <button class="ladder-button quick" id="runLadderQuickButton" type="button"><span class="ladder-icon" aria-hidden="true">▶</span><span class="ladder-label">Run 15 (quick)</span></button>
@@ -170,6 +171,7 @@
         </section>
         <section id="evalTab" class="tab-content hidden">
           <div class="panel-intro"><p class="eyebrow">BENCHMARK</p><h2>Run a full evaluation</h2><p>The <a href="https://github.com/microsoft-foundry/Model-Router-Auto-Evaluation" target="_blank">Model Router Auto Evaluation toolkit</a> runs your prompts against router + baseline, scores quality with a judge model, and produces a full dashboard.</p></div>
+          <div class="foundry-context" id="evalFoundryContext" hidden></div>
 
           <details class="demo-guide">
             <summary>How to run the evaluation (first time, ~15 min)</summary>

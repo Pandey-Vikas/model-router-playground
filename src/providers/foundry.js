@@ -19,7 +19,7 @@ async function getEntraToken() {
   if (cachedToken && cachedToken.expiresOn - Date.now() > 60_000) return cachedToken.token;
   const azCommand = process.platform === 'win32' ? 'az.cmd' : 'az';
   try {
-    const { stdout } = await execFileAsync(azCommand, ['account', 'get-access-token', '--resource', 'https://cognitiveservices.azure.com', '--output', 'json'], { shell: process.platform === 'win32' });
+    const { stdout } = await execFileAsync(azCommand, ['account', 'get-access-token', '--resource', 'https://cognitiveservices.azure.com', '--output', 'json'], { shell: process.platform === 'win32', windowsHide: true });
     const parsed = JSON.parse(stdout);
     cachedToken = { token: parsed.accessToken, expiresOn: new Date(parsed.expiresOn).getTime() };
     return cachedToken.token;

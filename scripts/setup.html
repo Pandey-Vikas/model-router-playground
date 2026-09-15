@@ -322,28 +322,32 @@ async function renderSubscription() {
   } catch (e) { showError(e.message); }
 }
 
-async function renderFoundry() {
+async function renderFoundry(preselectName) {
   loading('Select Foundry resource', 'Loading Azure OpenAI and AI Services resources…');
   try {
     const accounts = await api('/api/foundry-accounts');
     const hasAccounts = accounts.length > 0;
+    const preselectIndex = preselectName ? accounts.findIndex((a) => a.name === preselectName) : -1;
+    const initialIndex = preselectIndex >= 0 ? preselectIndex : 0;
     panel.innerHTML =
       '<h2>Select Foundry resource</h2>' +
       '<p class="sub">' + (hasAccounts ? 'Pick an existing Azure OpenAI / AI Services account, or create a fresh one.' : 'No existing accounts found. Create one below or refresh after creating in the portal.') + '</p>' +
       (hasAccounts
         ? '<label for="acct">Existing resource</label>' +
-          '<select id="acct">' + accounts.map((a, i) => '<option value="' + i + '">' + escapeHtml(a.name) + ' (' + escapeHtml(a.kind) + ', ' + escapeHtml(a.location) + ')</option>').join('') + '</select>' +
+          '<select id="acct">' + accounts.map((a, i) => '<option value="' + i + '"' + (i === initialIndex ? ' selected' : '') + '>' + escapeHtml(a.name) + ' (' + escapeHtml(a.kind) + ', ' + escapeHtml(a.location) + ')</option>').join('') + '</select>' +
+          (preselectIndex >= 0 ? '<div class="status ok" style="margin-top:8px">✓ Newly created resource <strong>' + escapeHtml(preselectName) + '</strong> selected. Click Continue to configure it.</div>' : '') +
           '<div id="details" class="status info"></div>'
         : '') +
       '<div style="margin:14px 0 0"><button id="toggleCreate" class="secondary" type="button">' + (hasAccounts ? '+ Create a new resource instead' : '+ Create a new resource') + '</button></div>' +
-      '<div id="createBox" style="display:none;margin-top:14px;padding:14px;border:1px solid #dfe3dc;border-radius:6px;background:#fafaf6">' +
-        '<h3 style="margin-top:0;font-size:14px">Create new Azure AI Services (Foundry) account</h3>' +
-        '<label for="newName">Account name (globally unique)</label>' +
+      '<div id="createBox" style="display:none;margin-top:14px;padding:16px;border:1px solid var(--border);border-radius:8px;background:var(--panel)">' +
+        '<h3 style="margin-top:0;margin-bottom:12px;font-size:16px;color:var(--text)">Create new Azure AI Services (Foundry) account</h3>' +
+        '<label for="newName">Foundry resource name <small style="color:var(--muted);font-weight:normal;text-transform:none;letter-spacing:0">(must be globally unique across Azure)</small></label>' +
         '<input id="newName" placeholder="my-foundry-router" />' +
-        '<label for="newRg">Resource group</label>' +
+        '<label style="margin-top:12px"><input type="radio" name="rgMode" id="rgModeExisting" value="existing" checked> Use an existing resource group</label>' +
         '<select id="newRg"><option value="">Loading…</option></select>' +
-        '<label style="margin-top:6px"><input type="checkbox" id="newRgCreate"> Create a new resource group with this name</label>' +
-        '<label for="newLoc" style="margin-top:10px">Location</label>' +
+        '<label style="margin-top:8px"><input type="radio" name="rgMode" id="rgModeNew" value="new"> Create a new resource group</label>' +
+        '<input id="newRgName" placeholder="my-foundry-rg" style="display:none" />' +
+        '<label for="newLoc" style="margin-top:12px">Location <small style="color:var(--muted);font-weight:normal;text-transform:none;letter-spacing:0">(★ = commonly used for Foundry)</small></label>' +
         '<select id="newLoc"><option value="">Loading…</option></select>' +
         '<div id="createStatus" class="status info" style="display:none"></div>' +
         '<button id="createBtn" style="margin-top:12px">Create resource</button>' +
@@ -382,38 +386,142 @@ async function renderFoundry() {
           api('/api/foundry-locations')
         ]);
         rgSel.innerHTML = '<option value="">— select a resource group —</option>' + rgs.map(g => '<option value="' + escapeHtml(g.name) + '">' + escapeHtml(g.name) + ' (' + escapeHtml(g.location) + ')</option>').join('');
-        locSel.innerHTML = locs.map(l => '<option value="' + escapeHtml(l) + '"' + (l === 'eastus2' ? ' selected' : '') + '>' + escapeHtml(l) + '</option>').join('');
+        const isRichLocation = locs.length && typeof locs[0] === 'object';
+        locSel.innerHTML = locs.map(l => {
+          const name = isRichLocation ? l.name : l;
+          const display = isRichLocation ? l.displayName : l;
+          const preferredMark = isRichLocation && l.preferred ? '★ ' : '';
+          const selected = name === 'eastus2' ? ' selected' : '';
+          return '<option value="' + escapeHtml(name) + '"' + selected + '>' + preferredMark + escapeHtml(display) + ' (' + escapeHtml(name) + ')</option>';
+        }).join('');
       } catch (e) {
         rgSel.innerHTML = '<option value="">Could not load resource groups</option>';
         locSel.innerHTML = '<option value="eastus2">eastus2</option>';
       }
+      const rgModeExisting = document.getElementById('rgModeExisting');
+      const rgModeNew = document.getElementById('rgModeNew');
+      const newRgNameInput = document.getElementById('newRgName');
+      const nameInput = document.getElementById('newName');
+      const createBtn = document.getElementById('createBtn');
+      const statusEl = document.getElementById('createStatus');
+      function validateCreateForm() {
+        const useNew = rgModeNew.checked;
+        rgSel.style.display = useNew ? 'none' : 'block';
+        rgSel.disabled = useNew;
+        newRgNameInput.style.display = useNew ? 'block' : 'none';
+        const name = nameInput.value.trim();
+        const rg = useNew ? newRgNameInput.value.trim() : rgSel.value.trim();
+        const loc = locSel.value.trim();
+        const missing = [];
+        if (!name) missing.push('account name');
+        if (!rg) missing.push(useNew ? 'new resource group name' : 'existing resource group');
+        if (!loc) missing.push('location');
+        createBtn.disabled = missing.length > 0;
+        createBtn.textContent = useNew ? 'Create resource group + Foundry account' : 'Create Foundry account';
+        if (missing.length) {
+          statusEl.style.display = 'block';
+          statusEl.className = 'status info';
+          statusEl.innerHTML = 'Fill in: <strong>' + missing.join(', ') + '</strong>.';
+        } else {
+          statusEl.style.display = 'block';
+          statusEl.className = 'status ok';
+          statusEl.innerHTML = 'Ready to create.';
+        }
+      }
+      rgModeExisting.onchange = validateCreateForm;
+      rgModeNew.onchange = validateCreateForm;
+      nameInput.oninput = validateCreateForm;
+      newRgNameInput.oninput = validateCreateForm;
+      rgSel.onchange = validateCreateForm;
+      locSel.onchange = validateCreateForm;
+      validateCreateForm();
     }
 
     document.getElementById('createBtn').onclick = async () => {
       const name = document.getElementById('newName').value.trim();
+      const useNewRg = document.getElementById('rgModeNew').checked;
       const rgSelValue = document.getElementById('newRg').value.trim();
-      const createGroup = document.getElementById('newRgCreate').checked;
+      const newRgValue = document.getElementById('newRgName').value.trim();
       const location = document.getElementById('newLoc').value.trim();
       const status = document.getElementById('createStatus');
+      const btn = document.getElementById('createBtn');
       status.style.display = 'block';
-      if (!name || !location) { status.className = 'status error'; status.textContent = 'Name and location are required.'; return; }
-      const resourceGroup = createGroup ? name : rgSelValue;
-      if (!resourceGroup) { status.className = 'status error'; status.textContent = createGroup ? 'Enter an account name to use as the new resource group name.' : 'Select a resource group or tick "Create a new resource group".'; return; }
-      status.className = 'status info';
-      status.textContent = 'Creating ' + name + ' in ' + resourceGroup + ' (' + location + ')… this can take 60–90 s.';
-      document.getElementById('createBtn').disabled = true;
+      if (!name || !location) { status.className = 'status error'; status.innerHTML = 'Account name and location are required.'; return; }
+      const resourceGroup = useNewRg ? newRgValue : rgSelValue;
+      if (!resourceGroup) {
+        status.className = 'status error';
+        status.innerHTML = useNewRg ? 'Enter a name for the new resource group.' : 'Select an existing resource group or switch to "Create new".';
+        return;
+      }
+      btn.disabled = true;
+      const totalSteps = useNewRg ? 2 : 1;
+      function setProgress(step, label) {
+        status.className = 'status info';
+        status.innerHTML = '<span class="spinner"></span><strong>Step ' + step + ' of ' + totalSteps + ':</strong> ' + label;
+      }
       try {
-        await api('/api/create-foundry', { method: 'POST', body: JSON.stringify({ name, resourceGroup, location, createGroup, sku: 'S0' }) });
+        if (useNewRg) {
+          setProgress(1, 'creating resource group <code>' + escapeHtml(resourceGroup) + '</code> in <code>' + escapeHtml(location) + '</code>…');
+          const rgResult = await api('/api/create-resource-group', { method: 'POST', body: { name: resourceGroup, location } });
+          if (rgResult.existed) {
+            setProgress(1, 'resource group <code>' + escapeHtml(resourceGroup) + '</code> already existed, reusing it…');
+            await new Promise((r) => setTimeout(r, 600));
+          }
+        }
+        setProgress(useNewRg ? 2 : 1, 'creating Foundry account <code>' + escapeHtml(name) + '</code> (this can take 60–90 s)…');
+        const createdResp = await api('/api/create-foundry', { method: 'POST', body: { name, resourceGroup, location, createGroup: false, sku: 'S0' } });
         status.className = 'status ok';
-        status.textContent = 'Created. Refreshing the list…';
-        setTimeout(() => renderFoundry(), 800);
+        status.innerHTML = '✓ ' + (useNewRg ? 'Resource group and ' : '') + 'Foundry account created. Moving to Deployment step…';
+        // Re-fetch the account list to get authoritative endpoint / auth settings, then jump straight into Step 5.
+        try {
+          const accounts = await api('/api/foundry-accounts');
+          const fresh = accounts.find((a) => a.name === name);
+          state.foundry = fresh || {
+            name,
+            kind: createdResp.kind || 'AIServices',
+            endpoint: createdResp.endpoint,
+            resourceGroup,
+            location: createdResp.location || location,
+            disableLocalAuth: false
+          };
+        } catch {
+          state.foundry = {
+            name,
+            kind: createdResp.kind || 'AIServices',
+            endpoint: createdResp.endpoint,
+            resourceGroup,
+            location: createdResp.location || location,
+            disableLocalAuth: false
+          };
+        }
+        setTimeout(() => setStep(5), 800);
       } catch (e) {
         status.className = 'status error';
-        status.textContent = 'Create failed: ' + (e.message || 'unknown');
-        document.getElementById('createBtn').disabled = false;
+        status.innerHTML = 'Create failed: ' + escapeHtml(e.message || 'unknown');
+        btn.disabled = false;
       }
     };
   } catch (e) { showError(e.message); }
+}
+
+function wireGrantAccess() {
+  const btn = document.getElementById('grantAccessBtn');
+  const status = document.getElementById('grantAccessStatus');
+  if (!btn || !status) return;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    status.innerHTML = '<span class="spinner"></span> Assigning roles…';
+    try {
+      const r = await api('/api/grant-access', { method: 'POST', body: { account: state.foundry.name, resourceGroup: state.foundry.resourceGroup } });
+      const grantedTxt = r.granted && r.granted.length ? '✓ Granted: ' + r.granted.join(', ') : '✓ No new roles needed — you already have access.';
+      const skippedTxt = r.skipped && r.skipped.length ? ' — skipped: ' + r.skipped.map(s => s.role).join(', ') : '';
+      status.innerHTML = '<span style="color:var(--good)">' + grantedTxt + skippedTxt + '</span><br><small>Role assignments can take up to 5 minutes to propagate.</small>';
+    } catch (e) {
+      status.innerHTML = '<span style="color:var(--bad)">✗ ' + escapeHtml(e.message) + '</span>';
+    } finally {
+      btn.disabled = false;
+    }
+  };
 }
 
 async function renderDeployment() {
@@ -422,6 +530,12 @@ async function renderDeployment() {
     const query = '?name=' + encodeURIComponent(state.foundry.name) + '&resourceGroup=' + encodeURIComponent(state.foundry.resourceGroup);
     const deps = await api('/api/deployments' + query);
     const routerDeps = deps.filter(d => (d.model || '').toLowerCase().includes('router'));
+    const accessBlock =
+      '<div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:220px"><strong>Data-plane access</strong><br><small class="sub">Grant your account the minimum Foundry / Cognitive Services roles on <code>' + escapeHtml(state.foundry.name) + '</code> so Entra ID chat calls work.</small></div>' +
+        '<button class="secondary" id="grantAccessBtn" type="button">Grant me access</button>' +
+        '<span id="grantAccessStatus" class="sub" style="min-width:100%"></span>' +
+      '</div>';
     const help =
       '<details style="margin-bottom:16px;border:1px solid var(--border);border-radius:6px;padding:12px 14px">' +
         '<summary style="cursor:pointer;font-weight:600">How to create three model-router deployments</summary>' +
@@ -439,10 +553,60 @@ async function renderDeployment() {
       '</details>';
     if (!deps.length) {
       panel.innerHTML =
-        '<h2>No deployments found</h2>' +
-        '<p class="sub">Create a <code>model-router</code> deployment in this resource first, then refresh.</p>' +
-        help +
-        '<div class="footer"><button class="secondary" onclick="setStep(4)">Back</button><button onclick="renderDeployment()">Refresh</button></div>';
+        '<h2>Deploy the three router modes</h2>' +
+        '<p class="sub">No <code>model-router</code> deployments in <b>' + escapeHtml(state.foundry.name) + '</b> yet. Deploy them now — one for each routing mode. Each deployment takes ~30–60 s.</p>' +
+        accessBlock +
+        '<div style="display:flex;flex-direction:column;gap:8px;margin:14px 0">' +
+          '<label class="prereq-row"><input type="checkbox" id="chkBalanced" checked><div class="prereq-info"><strong>mr-balanced</strong><small>Routing mode = balanced · model-router 2025-11-18 · Global Standard capacity 20 (≈20K TPM)</small></div><span id="statBalanced" class="prereq-manual">pending</span></label>' +
+          '<label class="prereq-row"><input type="checkbox" id="chkCost" checked><div class="prereq-info"><strong>mr-cost</strong><small>Routing mode = cost · model-router 2025-11-18 · Global Standard capacity 20 (≈20K TPM)</small></div><span id="statCost" class="prereq-manual">pending</span></label>' +
+          '<label class="prereq-row"><input type="checkbox" id="chkQuality" checked><div class="prereq-info"><strong>mr-quality</strong><small>Routing mode = quality · model-router 2025-11-18 · Global Standard capacity 20 (≈20K TPM)</small></div><span id="statQuality" class="prereq-manual">pending</span></label>' +
+        '</div>' +
+        '<div id="batchDeployStatus" class="status info" style="display:none"></div>' +
+        '<div class="footer"><button class="secondary" onclick="setStep(4)">Back</button><button class="secondary" onclick="renderDeployment()">Refresh</button><button id="batchDeployBtn">Deploy selected</button></div>' +
+        help;
+      wireGrantAccess();
+      document.getElementById('batchDeployBtn').onclick = async () => {
+        const selected = [
+          { key: 'Balanced', name: 'mr-balanced', mode: 'balanced' },
+          { key: 'Cost', name: 'mr-cost', mode: 'cost' },
+          { key: 'Quality', name: 'mr-quality', mode: 'quality' }
+        ].filter((t) => document.getElementById('chk' + t.key).checked);
+        if (!selected.length) { alert('Tick at least one deployment.'); return; }
+        const btn = document.getElementById('batchDeployBtn');
+        const statusEl = document.getElementById('batchDeployStatus');
+        btn.disabled = true;
+        statusEl.style.display = 'block';
+        statusEl.className = 'status info';
+        let failures = 0;
+        const errors = [];
+        for (let i = 0; i < selected.length; i++) {
+          const t = selected[i];
+          const chip = document.getElementById('stat' + t.key);
+          chip.textContent = 'creating…';
+          chip.style.color = 'var(--accent)';
+          statusEl.innerHTML = '<span class="spinner"></span>Deploying ' + (i + 1) + ' of ' + selected.length + ': <code>' + t.name + '</code> (mode = ' + t.mode + ')…';
+          try {
+            await api('/api/deploy-router', { method: 'POST', body: { account: state.foundry.name, resourceGroup: state.foundry.resourceGroup, deploymentName: t.name, mode: t.mode, capacity: 20, version: '2025-11-18' } });
+            chip.textContent = '✓ created';
+            chip.style.color = 'var(--good)';
+          } catch (e) {
+            chip.textContent = '✗ failed';
+            chip.style.color = 'var(--bad)';
+            chip.title = e.message;
+            errors.push(t.name + ': ' + e.message);
+            failures++;
+          }
+        }
+        if (failures === 0) {
+          statusEl.className = 'status ok';
+          statusEl.innerHTML = '✓ All deployments created. Refreshing the list…';
+          setTimeout(() => renderDeployment(), 1200);
+        } else {
+          statusEl.className = 'status error';
+          statusEl.innerHTML = '<strong>' + failures + ' deployment(s) failed:</strong><pre style="white-space:pre-wrap;margin:8px 0 0;font-size:12px">' + escapeHtml(errors.join('\n\n')) + '</pre>';
+          btn.disabled = false;
+        }
+      };
       return;
     }
     const findBy = (needle) => deps.findIndex(d => d.name.toLowerCase().includes(needle));
@@ -453,6 +617,7 @@ async function renderDeployment() {
     panel.innerHTML =
       '<h2>Assign deployments to router modes</h2>' +
       '<p class="sub">Each mode routes to its own deployment. If you only have one, leave all three the same and the app will show a banner explaining why.</p>' +
+      accessBlock +
       help +
       '<label for="depBalanced">Balanced deployment</label>' +
       '<select id="depBalanced">' + optionsFor(balancedIdx) + '</select>' +
@@ -460,16 +625,14 @@ async function renderDeployment() {
       '<select id="depCost">' + optionsFor(costIdx) + '</select>' +
       '<label for="depQuality">Quality deployment</label>' +
       '<select id="depQuality">' + optionsFor(qualityIdx) + '</select>' +
-      '<label for="ver">Azure OpenAI REST API version</label>' +
-      '<input type="text" id="ver" value="' + escapeHtml(state.apiVersion) + '">' +
-      '<div class="warn" style="margin-top:6px">This is the <b>REST API version</b> (shape of the HTTP request), not the Model Router version. The <b>Model Router version</b> (e.g. <code>2025-11-18</code>) shown next to each deployment above is set at deployment time in Foundry and cannot be changed here.</div>' +
       '<div class="footer"><button class="secondary" onclick="setStep(4)">Back</button><button class="secondary" onclick="renderDeployment()">Refresh</button><button id="next">Continue</button></div>';
+    wireGrantAccess();
     document.getElementById('next').onclick = () => {
       state.deploymentBalanced = document.getElementById('depBalanced').value;
       state.deploymentCost = document.getElementById('depCost').value;
       state.deploymentQuality = document.getElementById('depQuality').value;
       state.deployment = state.deploymentBalanced;
-      state.apiVersion = document.getElementById('ver').value.trim() || '2024-10-21';
+      // apiVersion kept at its default from the initial state (currently '2024-10-21') — hidden from the UI.
       setStep(6);
     };
   } catch (e) { showError(e.message); }
@@ -482,6 +645,8 @@ function buildEnvPreview() {
     'DATABASE_PATH=./data/router-playground.db',
     '',
     'AZURE_OPENAI_ENDPOINT=' + state.foundry.endpoint.replace(/\/$/, ''),
+    'AZURE_FOUNDRY_RESOURCE_NAME=' + state.foundry.name,
+    'AZURE_FOUNDRY_RESOURCE_GROUP=' + state.foundry.resourceGroup,
     'MODEL_ROUTER_DEPLOYMENT_NAME=' + state.deployment,
     'AZURE_OPENAI_API_VERSION=' + state.apiVersion
   ];
