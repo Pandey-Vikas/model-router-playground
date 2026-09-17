@@ -1151,7 +1151,7 @@ const THEME_STORAGE_KEY = 'routelab.theme';
 const VALID_THEMES = ['light', 'dark', 'cyber'];
 
 function applyTheme(theme) {
-  const normalized = VALID_THEMES.includes(theme) ? theme : 'light';
+  const normalized = VALID_THEMES.includes(theme) ? theme : 'dark';
   document.documentElement.setAttribute('data-theme', normalized);
   document.querySelectorAll('.theme-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.theme === normalized);
@@ -1162,7 +1162,7 @@ function applyTheme(theme) {
 
 function wireThemeSwitcher() {
   const stored = (() => { try { return localStorage.getItem(THEME_STORAGE_KEY); } catch { return null; } })();
-  applyTheme(stored || 'light');
+  applyTheme(stored || 'dark');
   document.querySelectorAll('.theme-btn').forEach((btn) => {
     btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
   });

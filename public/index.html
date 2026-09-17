@@ -10,8 +10,9 @@
       (function () {
         try {
           var t = localStorage.getItem('routelab.theme');
-          if (t === 'dark' || t === 'cyber' || t === 'light') document.documentElement.setAttribute('data-theme', t);
-        } catch {}
+          if (t !== 'dark' && t !== 'cyber' && t !== 'light') t = 'dark';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch { document.documentElement.setAttribute('data-theme', 'dark'); }
       })();
     </script>
   </head>
