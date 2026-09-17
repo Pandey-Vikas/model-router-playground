@@ -325,6 +325,19 @@ export async function runEvaluation({ datasetPath, config = 'configs/quick_test.
   const venvPy = process.platform === 'win32'
     ? join(TOOLKIT_DIR, '.venv', 'Scripts', 'python.exe')
     : join(TOOLKIT_DIR, '.venv', 'bin', 'python');
+  // Rewrite the yaml's evaluation.name so the toolkit dashboard header reflects what actually ran
+  // (e.g. "mr-cost vs gpt-5.2") instead of the hard-coded "model-router-vs-gpt5" literal.
+  try {
+    if (routerDeployment && baselineDeployment) {
+      const cfgPath = join(TOOLKIT_DIR, config);
+      if (existsSync(cfgPath)) {
+        const source = readFileSync(cfgPath, 'utf8');
+        const runLabel = `${routerDeployment}-vs-${baselineDeployment}`;
+        const patched = source.replace(/^(\s*name:\s*)"[^"]*"/m, `$1"${runLabel}"`);
+        if (patched !== source) writeFileSync(cfgPath, patched, 'utf8');
+      }
+    }
+  } catch { /* best-effort — don't fail the run over the title */ }
   const args = ['scripts/run_eval.py', '--config', config, '--dataset', datasetPath];
   if (dryRun) args.push('--dry-run');
   if (runName) args.push('--run-name', runName);
