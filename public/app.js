@@ -734,6 +734,15 @@ function applyEvalLockout(busy) {
   if (elements.messageInput) elements.messageInput.disabled = busy;
   if (elements.sendButton) elements.sendButton.disabled = busy;
   document.querySelectorAll('[data-conversation-new], .new-conversation, #newConversationButton').forEach((el) => { el.disabled = busy; });
+  // Safety net: SSE can race with activeProc cleanup so the last "exit code 0" line might arrive
+  // while the server still reports busy. Poll status every 2s until it clears so the lockout
+  // never sticks after the eval actually finishes.
+  if (busy && !state._lockoutPoller) {
+    state._lockoutPoller = setInterval(() => refreshEvalStatus(), 2000);
+  } else if (!busy && state._lockoutPoller) {
+    clearInterval(state._lockoutPoller);
+    state._lockoutPoller = null;
+  }
 }
 
 async function refreshEvalDeployments() {
